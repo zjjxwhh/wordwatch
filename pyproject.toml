@@ -1,0 +1,22 @@
+[project]
+name = "wordwatch"
+version = "0.2.0"
+description = "WordWatch — Telegram monitoring dashboard with reusable notification channels"
+requires-python = ">=3.14,<3.15"
+dependencies = ["telethon==1.45.0", "httpx[socks]==0.28.1", "python-socks[asyncio]==2.7.2", "fastapi>=0.119,<1", "uvicorn>=0.38,<1"]
+
+[dependency-groups]
+dev = ["pytest>=8.4,<10", "pytest-asyncio>=1.2,<2"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true

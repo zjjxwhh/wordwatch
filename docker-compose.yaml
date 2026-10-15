@@ -1,0 +1,16 @@
+services:
+  wordwatch:
+    image: ghcr.io/zjjxwhh/wordwatch:latest
+    container_name: wordwatch
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

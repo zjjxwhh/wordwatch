@@ -1,0 +1,50 @@
+# Repository, documentation, and tests are not needed in the image
+.git
+.github
+tests
+docs
+README.md
+docker-compose.yaml
+
+# Environment and virtual environments, including nested directories
+**/.env
+**/.env.*
+**/.venv
+**/venv
+
+# Python caches and build/test output
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.uv-cache
+**/.coverage
+**/.coverage.*
+**/htmlcov
+**/build
+**/dist
+**/*.egg-info
+
+# Runtime data, including custom DATA_DIR locations
+data
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*
+**/*.db
+**/*.db-*
+**/*.session
+**/*.session-*
+**/*.log
+**/*.log.*
+
+# Local preview and editor/OS files
+.preview-data
+.playwright-mcp
+**/*.swp
+**/*.swo
+**/*~
+**/.DS_Store
+**/Thumbs.db
+**/Desktop.ini
