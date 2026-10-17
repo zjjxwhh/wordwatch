@@ -385,7 +385,7 @@ def test_cookie_login_logout_and_expiry(client):
     response = client.post('/api/auth/login', json={'username': 'admin', 'password': 'test-password-123'})
     assert response.status_code == 200
     cookie = response.headers['set-cookie'].lower()
-    assert 'httponly' in cookie and 'samesite=strict' in cookie and 'max-age=43200' in cookie
+    assert 'httponly' in cookie and 'samesite=strict' in cookie and 'max-age=1296000' in cookie
     token = client.cookies.get('relay_session')
     row = client.app.state.store.db.execute('SELECT token_hash FROM admin_sessions').fetchone()
     assert row[0] != token
@@ -503,3 +503,33 @@ async def test_concurrent_failed_logins_respect_limit(tmp_path):
         assert statuses.count(401) == 10
         assert statuses.count(429) == 2
     app.state.store.db.close()
+
+def test_active_session_renews_server_expiry_and_browser_cookie(client):
+    import time
+    from src.db import SESSION_LIFETIME
+    store = client.app.state.store
+    with store.db:
+        store.db.execute('UPDATE admin_sessions SET expires_at=?', (time.time() + 60,))
+    response = client.get('/api/status')
+    assert response.status_code == 200
+    assert 'Max-Age=1296000' in response.headers['set-cookie']
+    expires = store.db.execute('SELECT expires_at FROM admin_sessions').fetchone()[0]
+    assert abs(expires - time.time() - SESSION_LIFETIME) < 5
+    response = client.get('/')
+    assert 'Max-Age=1296000' in response.headers['set-cookie']
+    token = client.cookies.get('relay_session')
+    with store.db:
+        store.db.execute('UPDATE admin_sessions SET expires_at=0')
+    response = client.get('/api/status')
+    assert response.status_code == 401
+    assert 'set-cookie' not in response.headers
+    assert not store.renew_session(token)
+
+
+def test_account_change_does_not_restore_invalidated_session(client):
+    token = client.cookies.get('relay_session')
+    response = client.put('/api/admin', json={'username':'renamed-admin','current_password':'test-password-123'})
+    assert response.status_code == 200
+    assert not client.app.state.store.valid_session(token)
+    assert not client.app.state.store.renew_session(token)
+    assert 'Max-Age=1296000' not in response.headers.get('set-cookie','')

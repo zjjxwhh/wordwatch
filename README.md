@@ -38,7 +38,7 @@ docker run -d --name wordwatch --restart unless-stopped \
 
 ## 首次使用
 
-打开 [http://127.0.0.1:8080](http://127.0.0.1:8080)，在页面创建管理员账户并登录，然后：
+打开 [http://127.0.0.1:8080](http://127.0.0.1:8080)，在页面创建管理员账户并登录。登录有效期为 15 天，使用中自动续期；退出或修改账户信息后失效。然后：
 
 1. **Telegram 连接**：从 [my.telegram.org](https://my.telegram.org) 获取 API ID / API Hash，保存后通过手机号、验证码及两步验证密码登录。
 2. **我的群组**：查询群 ID。监听账号必须已加入目标群。

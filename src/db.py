@@ -10,6 +10,9 @@ from .models import Settings, SystemSettings
 from .templates import DEFAULT_TITLE, DEFAULT_BODY_TEMPLATE, DEFAULT_PRESET_TITLE, DEFAULT_PRESET_BODY
 
 
+SESSION_LIFETIME = 15 * 24 * 60 * 60
+
+
 class Store:
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -137,7 +140,7 @@ class Store:
     def account_version(record):
         return hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
 
-    def create_session(self, record, lifetime=43200):
+    def create_session(self, record, lifetime=SESSION_LIFETIME):
         if self.setting('admin') != record:
             return None
         token = secrets.token_urlsafe(32)
@@ -156,6 +159,14 @@ class Store:
         record = self.setting('admin')
         return bool(row and record and row['expires_at'] > time.time() and
                     hmac.compare_digest(row['account_version'], self.account_version(record)))
+
+    def renew_session(self, token):
+        if not self.valid_session(token):
+            return False
+        now = time.time()
+        with self.db:
+            return bool(self.db.execute('UPDATE admin_sessions SET expires_at=? WHERE token_hash=? AND expires_at>?',
+                                       (now + SESSION_LIFETIME, hashlib.sha256(token.encode()).hexdigest(), now)).rowcount)
 
     def delete_session(self, token):
         if token:

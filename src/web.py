@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
 
-from .db import Store
+from .db import Store, SESSION_LIFETIME
 from .models import AdminLogin, AdminSetup, AdminUpdate, Channel, LoginCode, LoginVerify, Monitor, Settings, PositiveID, TemplateFields, NotificationTemplate, SystemSettings
 from .push import deliver
 from .runtime import Runtime
@@ -51,6 +51,7 @@ def create_app(directory='data', background=True):
             raise HTTPException(401, '登录已失效，请重新登录')
         if request.method not in ('GET', 'HEAD'):
             check_origin(request)
+        request.state.authenticated = True
 
     @app.post('/api/auth/login')
     async def login(model: AdminLogin, request: Request, response: Response):
@@ -79,7 +80,7 @@ def create_app(directory='data', background=True):
         if not token:
             raise HTTPException(409, '账户信息已变化，请重新登录')
         store.delete_session(request.cookies.get(session_cookie))
-        response.set_cookie(session_cookie, token, max_age=43200, httponly=True,
+        response.set_cookie(session_cookie, token, max_age=SESSION_LIFETIME, httponly=True,
                             secure=request.url.scheme == 'https', samesite='strict', path='/')
         return {'ok': True}
 
@@ -98,6 +99,11 @@ def create_app(directory='data', background=True):
     @app.middleware('http')
     async def secure_headers(request, call_next):
         response = await call_next(request)
+        if getattr(request.state, 'authenticated', False) and response.status_code < 400:
+            token = request.cookies.get(session_cookie)
+            if store.renew_session(token):
+                response.set_cookie(session_cookie, token, max_age=SESSION_LIFETIME, httponly=True,
+                                    secure=request.url.scheme == 'https', samesite='strict', path='/')
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
@@ -115,6 +121,7 @@ def create_app(directory='data', background=True):
             return FileResponse(STATIC / 'setup.html')
         if not store.valid_session(request.cookies.get(session_cookie)):
             return FileResponse(STATIC / 'login.html')
+        request.state.authenticated = True
         return FileResponse(STATIC / 'index.html')
 
     @app.get('/login')
