@@ -150,11 +150,17 @@ def create_app(directory='data', background=True):
 
     @app.get('/api/system-settings', dependencies=api_auth)
     async def system_settings():
-        return store.system_settings()
+        value = store.system_settings()
+        value['proxy_password_configured'] = bool(value['proxy_password'])
+        return value
 
     @app.put('/api/system-settings', dependencies=api_auth)
     async def save_system_settings(model: SystemSettings):
-        store.set_setting('system', model.model_dump())
+        old = store.system_settings()
+        value = old | model.model_dump(exclude_unset=True)
+        store.set_setting('system', value)
+        if any(value[key] != old[key] for key in value if key.startswith('proxy_')):
+            await runtime.reset()
         return {'ok': True}
 
     @app.get('/api/admin', dependencies=api_auth)
@@ -187,7 +193,6 @@ def create_app(directory='data', background=True):
         for key in ('token', 'device_key'):
             if key in c:
                 c[key + '_configured'] = bool(c[key])
-                c[key] = ''
         result['config'] = c
         return result
 
@@ -230,7 +235,7 @@ def create_app(directory='data', background=True):
         if not channel:
             raise HTTPException(404, '渠道不存在')
         try:
-            async with httpx.AsyncClient(timeout=20, proxy=store.settings()['http_proxy'] or None, trust_env=False) as http:
+            async with httpx.AsyncClient(timeout=20, proxy=store.notification_proxy(channel), trust_env=False) as http:
                 await deliver(http, channel, {'title': '观言 · WordWatch', 'body': '推送通道测试成功', 'url': ''})
         except Exception as exc:
             raise HTTPException(502, f'测试推送失败：{type(exc).__name__}') from None
@@ -304,20 +309,16 @@ def create_app(directory='data', background=True):
     @app.get('/api/settings', dependencies=api_auth)
     async def settings():
         value = store.settings()
-        for key in ('api_hash', 'proxy_password', 'http_proxy'):
-            value[key + '_configured'] = bool(value[key])
-            value[key] = ''
+        value['account_phone'] = store.setting('telegram_account', {}).get('phone', '')
+        value['authorized'] = runtime.authorized
+        value['api_hash_configured'] = bool(value['api_hash'])
         return value
 
     @app.put('/api/settings', dependencies=api_auth)
     async def save_settings(model: Settings):
         value, old = model.model_dump(), store.settings()
-        clear_http_proxy = value.pop('clear_http_proxy')
-        for key in ('api_hash', 'proxy_password', 'http_proxy'):
-            if not value[key]:
-                value[key] = old[key]
-        if clear_http_proxy:
-            value['http_proxy'] = ''
+        if not value['api_hash']:
+            value['api_hash'] = old['api_hash']
         store.set_setting('telegram', value)
         await runtime.reset()
         return {'ok': True}

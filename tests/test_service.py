@@ -11,7 +11,7 @@ from telethon.tl.types import User
 from telethon.errors import SessionPasswordNeededError
 
 from src.db import Store
-from src.models import Channel, LoginVerify, Monitor, Settings
+from src.models import Channel, LoginVerify, Monitor, Settings, SystemSettings
 from src.push import DeliveryError, deliver, truncate
 from src.runtime import Runtime
 from src.web import create_app
@@ -185,9 +185,9 @@ def test_api_channel_secret_retention_and_multiple_references(client):
     body = {'name': '我的 iPhone', 'kind': 'bark', 'config': {'server': 'https://api.day.app', 'device_key': 'private-secret', 'params': {'sound': 'minuet'}}}
     cid = client.post('/api/channels', json=body).json()['id']
     result = client.get('/api/channels').json()[0]
-    assert result['config']['device_key'] == ''
+    assert result['config']['device_key'] == 'private-secret'
     assert result['config']['device_key_configured'] is True
-    assert 'private-secret' not in client.get('/api/channels').text
+    assert 'private-secret' in client.get('/api/channels').text
     body['config']['device_key'] = ''
     body['name'] = '重命名'
     assert client.put(f'/api/channels/{cid}', json=body).status_code == 200
@@ -203,15 +203,19 @@ def test_api_channel_secret_retention_and_multiple_references(client):
 
 
 def test_settings_persist_secret_and_clear_proxy(client):
-    value = {'api_id': 12345, 'api_hash': 'secret-hash', 'http_proxy': 'http://user:password@localhost:7890'}
-    assert client.put('/api/settings', json=value).status_code == 200
-    public = client.get('/api/settings')
-    assert 'secret-hash' not in public.text and 'user:password' not in public.text
-    value.update(api_hash='', http_proxy='', clear_http_proxy=True)
-    assert client.put('/api/settings', json=value).status_code == 200
-    actual = client.app.state.store.settings()
-    assert actual['api_hash'] == 'secret-hash'
-    assert actual['http_proxy'] == ''
+    assert client.put('/api/settings', json={'api_id':12345,'api_hash':'secret-hash','use_proxy':True}).status_code == 200
+    value = {'proxy_host':'localhost','proxy_password':' secret '}
+    assert client.put('/api/system-settings', json=value).status_code == 200
+    public = client.get('/api/system-settings').json()
+    assert public['proxy_password'] == ' secret ' and public['proxy_password_configured']
+    assert client.put('/api/system-settings', json={'timezone':'UTC'}).status_code == 200
+    assert client.app.state.store.system_settings()['proxy_password'] == ' secret '
+    assert client.put('/api/system-settings', json={'proxy_password':''}).status_code == 200
+    assert client.app.state.store.system_settings()['proxy_password'] == ''
+    assert client.app.state.store.system_settings()['timezone'] == 'UTC'
+    assert client.app.state.store.system_settings()['proxy_host'] == 'localhost'
+    assert client.put('/api/settings', json={'api_id':12345,'api_hash':'','use_proxy':False}).status_code == 200
+    assert client.app.state.store.settings()['api_hash'] == 'secret-hash'
 
 
 def test_invalid_input_secret_not_reflected(client):
@@ -271,7 +275,7 @@ async def test_login_code_and_two_factor_flow(store):
     assert (await runtime.verify('', 'two-factor-password'))['status'] == 'authorized'
     assert runtime.authorized
     assert runtime.phone is None and runtime.phone_code_hash is None
-    assert store.setting('telegram') is None
+    assert store.settings()['api_id'] is None
 
 
 async def test_worker_channel_failures_do_not_block_other_channels(store, monkeypatch):
@@ -451,7 +455,7 @@ def test_invalid_json_channel_edit_returns_422(client):
 def test_login_secrets_keep_leading_and_trailing_spaces():
     assert LoginVerify(code=' 12345 ', password=' secret ').password == ' secret '
     assert LoginVerify(code=' 12345 ').code == '12345'
-    assert Settings(proxy_password=' proxy secret ').proxy_password == ' proxy secret '
+    assert SystemSettings(proxy_password=' proxy secret ').proxy_password == ' proxy secret '
 
 
 async def test_telegram_verify_requires_authorized_session(store):
@@ -504,6 +508,7 @@ async def test_concurrent_failed_logins_respect_limit(tmp_path):
         assert statuses.count(429) == 2
     app.state.store.db.close()
 
+
 def test_active_session_renews_server_expiry_and_browser_cookie(client):
     import time
     from src.db import SESSION_LIFETIME
@@ -533,3 +538,65 @@ def test_account_change_does_not_restore_invalidated_session(client):
     assert not client.app.state.store.valid_session(token)
     assert not client.app.state.store.renew_session(token)
     assert 'Max-Age=1296000' not in response.headers.get('set-cookie','')
+
+
+def test_channel_proxy_and_retry_settings(client):
+    assert client.put('/api/system-settings', json={'proxy_type':'http','proxy_host':'proxy','proxy_port':8080}).status_code == 200
+    body = {'name':'Phone','kind':'bark','config':{'server':'https://api.day.app','device_key':'secret'},
+            'use_proxy':True,'max_attempts':3}
+    cid = client.post('/api/channels', json=body).json()['id']
+    store = client.app.state.store
+    assert store.notification_proxy(store.channel(cid)) == 'http://proxy:8080'
+    result = client.get('/api/channels').json()[0]
+    assert result['use_proxy'] is True and result['max_attempts'] == 3
+    body.update(use_proxy=False,max_attempts=1)
+    assert client.put(f'/api/channels/{cid}', json=body).status_code == 200
+    assert store.notification_proxy(store.channel(cid)) is None
+    assert store.channel(cid)['max_attempts'] == 1
+    for invalid in (0,101):
+        assert client.put(f'/api/channels/{cid}', json=body | {'max_attempts':invalid}).status_code == 422
+
+
+@pytest.mark.parametrize('use_proxy,max_attempts', [(True,1),(False,3)])
+async def test_push_worker_uses_channel_proxy_and_retry_limit(store, monkeypatch, use_proxy, max_attempts):
+    store.set_setting('system', {'proxy_host':'proxy','proxy_type':'http','proxy_port':8080})
+    cid = store.save_channel(Channel(name='Phone', kind='bark', use_proxy=use_proxy, max_attempts=max_attempts,
+                                     config={'server':'https://api.day.app','device_key':'secret'}))
+    monitor = rule(store, [cid])
+    store.record(monitor, message(), {'title':'test','body':'message','url':''})
+    runtime = Runtime(store)
+    original_next = store.next_job
+    calls = []
+    def next_job():
+        if calls:
+            raise asyncio.CancelledError
+        return original_next()
+    class FakeHTTP:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+    async def fail(*args):
+        raise RuntimeError('offline')
+    monkeypatch.setattr(store, 'next_job', next_job)
+    monkeypatch.setattr('src.runtime.httpx.AsyncClient', FakeHTTP)
+    monkeypatch.setattr('src.runtime.deliver', fail)
+    with pytest.raises(asyncio.CancelledError):
+        await runtime.push_loop()
+    assert calls[0]['proxy'] == ('http://proxy:8080' if use_proxy else None)
+    assert calls[0]['trust_env'] is False
+    row = store.db.execute('SELECT status,attempts FROM deliveries').fetchone()
+    assert row['status'] == ('failed' if max_attempts == 1 else 'pending')
+    assert row['attempts'] == 1
+
+
+def test_bot_token_echo_requires_login(client):
+    body = {'name':'Bot','kind':'telegram','config':{'token':'saved-bot-token','chat_id':'42'}}
+    assert client.post('/api/channels', json=body).status_code == 200
+    assert client.get('/api/channels').json()[0]['config']['token'] == 'saved-bot-token'
+    client.cookies.clear()
+    result = client.get('/api/channels')
+    assert result.status_code == 401
+    assert 'saved-bot-token' not in result.text

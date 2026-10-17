@@ -20,6 +20,8 @@ class Channel(Input):
     kind: Literal['telegram', 'bark']
     enabled: bool = True
     config: dict
+    use_proxy: bool = False
+    max_attempts: int = Field(default=10, ge=1, le=100)
 
     @model_validator(mode='after')
     def validate_config(self):
@@ -87,20 +89,7 @@ class Monitor(TemplateFields):
 class Settings(Input):
     api_id: int | None = Field(default=None, gt=0)
     api_hash: str = ''
-    proxy_host: str = ''
-    proxy_port: int = Field(default=1080, ge=1, le=65535)
-    proxy_username: str = ''
-    proxy_password: SecretText = ''
-    http_proxy: str = ''
-    max_attempts: int = Field(default=10, ge=1, le=100)
-    clear_http_proxy: bool = False
-
-    @field_validator('http_proxy')
-    @classmethod
-    def valid_proxy(cls, value):
-        if value and (urlsplit(value).scheme not in ('http', 'https', 'socks5', 'socks5h') or not urlsplit(value).hostname):
-            raise ValueError('HTTP 代理地址必须为 http(s):// 或 socks5(h):// URL')
-        return value
+    use_proxy: bool = False
 
 
 class LoginCode(Input):
@@ -160,6 +149,11 @@ class AdminLogin(Input):
 
 
 class SystemSettings(Input):
+    proxy_type: Literal['socks5', 'http'] = 'socks5'
+    proxy_host: str = ''
+    proxy_port: int = Field(default=1080, ge=1, le=65535)
+    proxy_username: str = ''
+    proxy_password: SecretText = ''
     timezone: str = Field(default='Asia/Shanghai', min_length=1, max_length=100)
 
     @field_validator('timezone')

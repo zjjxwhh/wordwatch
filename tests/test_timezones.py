@@ -35,16 +35,16 @@ def test_timezone_settings_validation_and_persistence(tmp_path):
     with TestClient(app) as http:
         assert http.get('/api/system-settings').status_code == 401
         http.post('/api/auth/login', json={'username':'admin','password':'test-password-123'})
-        assert http.get('/api/system-settings').json() == {'timezone':'Asia/Shanghai'}
+        assert http.get('/api/system-settings').json()['timezone'] == 'Asia/Shanghai'
         for invalid in ['Mars/Unknown','', '/etc/passwd', '../UTC']:
             assert http.put('/api/system-settings', json={'timezone':invalid}).status_code == 422
         assert http.put('/api/system-settings', json={'timezone':'UTC'}).status_code == 200
-        assert http.get('/api/system-settings').json() == {'timezone':'UTC'}
+        assert http.get('/api/system-settings').json()['timezone'] == 'UTC'
         result = http.post('/api/templates/preview', json={'body_template':'{sent_at}'}).json()
         assert result['body'] == '2026-10-17 04:00:00'
         assert http.get('/api/admin').status_code == 200
     store = Store(tmp_path)
-    assert store.system_settings() == {'timezone':'UTC'}
+    assert store.system_settings()['timezone'] == 'UTC'
     store.db.close()
 
 

@@ -60,9 +60,10 @@ class Runtime:
             return None
         if self.client is None:
             proxy = None
-            if s['proxy_host']:
-                proxy = {'proxy_type': 'socks5', 'addr': s['proxy_host'], 'port': s['proxy_port'],
-                         'username': s['proxy_username'] or None, 'password': s['proxy_password'] or None}
+            network = self.store.system_settings()
+            if s['use_proxy'] and network['proxy_host']:
+                proxy = {'proxy_type': network['proxy_type'], 'addr': network['proxy_host'], 'port': network['proxy_port'],
+                         'username': network['proxy_username'] or None, 'password': network['proxy_password'] or None}
             self.client = TelegramClient(str(self.store.directory / 'telegram'), s['api_id'], s['api_hash'], proxy=proxy,
                                          connection_retries=2, retry_delay=2, timeout=10)
             self.client.add_event_handler(self.on_message, events.NewMessage())
@@ -76,7 +77,12 @@ class Runtime:
                 async with self.lock:
                     client = await self.get_client()
                     if client:
+                        was_authorized = self.authorized
                         self.authorized = await client.is_user_authorized()
+                        if self.authorized and (not was_authorized or not self.store.setting('telegram_account', {}).get('phone')):
+                            me = await client.get_me()
+                            if getattr(me, 'phone', None):
+                                self.store.set_setting('telegram_account', {'phone': '+' + me.phone.lstrip('+')})
                         self.state = '监听中' if self.authorized else '等待登录'
                         self.error = None
             except Exception as exc:
@@ -114,6 +120,7 @@ class Runtime:
             self.authorized = True
             self.state = '监听中'
             self.error = None
+            self.store.set_setting('telegram_account', {'phone': self.phone})
             self.phone = self.phone_code_hash = None
             return {'status': 'authorized'}
 
@@ -155,19 +162,21 @@ class Runtime:
                 await asyncio.sleep(0.5)
                 continue
             channel = self.store.channel(job['channel_id'])
-            settings = self.store.settings()
             try:
-                async with httpx.AsyncClient(timeout=20, proxy=settings['http_proxy'] or None, trust_env=False) as http:
+                async with httpx.AsyncClient(timeout=20, proxy=self.store.notification_proxy(channel), trust_env=False) as http:
                     await deliver(http, channel, json.loads(job['payload']))
             except Exception as exc:
-                status = self.store.finish_job(job, False, settings['max_attempts'], type(exc).__name__, getattr(exc, 'retry_after', 0))
+                status = self.store.finish_job(job, False, channel['max_attempts'], type(exc).__name__, getattr(exc, 'retry_after', 0))
                 log.warning('Delivery %s: id=%s channel=%s error=%s', status, job['id'], job['channel_id'], type(exc).__name__)
             else:
-                self.store.finish_job(job, True, settings['max_attempts'])
+                self.store.finish_job(job, True, channel['max_attempts'])
                 log.info('Delivery sent: id=%s channel=%s', job['id'], job['channel_id'])
 
     def status(self):
+        settings = self.store.settings()
         return {'state': self.state, 'error': self.error, 'authorized': self.authorized,
                 'connected': bool(self.client and self.client.is_connected()),
                 'started_at': self.started_at.isoformat(),
+                'account_phone': self.store.setting('telegram_account', {}).get('phone', ''),
+                'api_hash_configured': bool(settings['api_hash']),
                 'worker_ok': bool(self.worker_heartbeat and time.time() - self.worker_heartbeat < 90)}

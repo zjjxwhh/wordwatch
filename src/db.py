@@ -5,6 +5,7 @@ from pathlib import Path
 import secrets
 import sqlite3
 import time
+from urllib.parse import quote, urlsplit, unquote
 
 from .models import Settings, SystemSettings
 from .templates import DEFAULT_TITLE, DEFAULT_BODY_TEMPLATE, DEFAULT_PRESET_TITLE, DEFAULT_PRESET_BODY
@@ -90,6 +91,37 @@ class Store:
                     self.db.execute('DELETE FROM notification_templates WHERE id=?', (template['id'],))
                 self.db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', ('default_preset_v2', 'true'))
 
+        self.migrate_proxy_settings()
+
+    def migrate_proxy_settings(self):
+        if self.setting('shared_proxy_v1', False):
+            return
+        old = self.setting('telegram', {})
+        system = self.setting('system', {})
+        proxy_keys = ('proxy_type', 'proxy_host', 'proxy_port', 'proxy_username', 'proxy_password')
+        if not system.get('proxy_host'):
+            system.update({key: old[key] for key in proxy_keys if key in old})
+            if not system.get('proxy_host') and old.get('http_proxy'):
+                parsed = urlsplit(old['http_proxy'])
+                if parsed.scheme in ('http', 'socks5') and parsed.hostname:
+                    system.update(proxy_type=parsed.scheme, proxy_host=parsed.hostname,
+                                  proxy_port=parsed.port or (80 if parsed.scheme == 'http' else 1080),
+                                  proxy_username=unquote(parsed.username or ''), proxy_password=unquote(parsed.password or ''))
+        telegram = {key: old[key] for key in ('api_id', 'api_hash', 'use_proxy') if key in old}
+        telegram.setdefault('use_proxy', bool(old.get('proxy_host')))
+        mode = old.get('notification_proxy_mode', 'custom' if old.get('http_proxy') else 'shared')
+        use_proxy = mode != 'direct' and bool(old.get('http_proxy') if mode == 'custom' else old.get('proxy_host'))
+        with self.db:
+            columns = {row['name'] for row in self.db.execute('PRAGMA table_info(channels)')}
+            if 'use_proxy' not in columns:
+                self.db.execute('ALTER TABLE channels ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0')
+                self.db.execute('UPDATE channels SET use_proxy=?', (use_proxy,))
+            if 'max_attempts' not in columns:
+                self.db.execute('ALTER TABLE channels ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 10')
+                self.db.execute('UPDATE channels SET max_attempts=?', (old.get('max_attempts', 10),))
+            for key, value in (('system', system), ('telegram', telegram), ('shared_proxy_v1', True)):
+                self.db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(value)))
+
     def setting(self, key, default=None):
         row = self.db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
         return json.loads(row[0]) if row else default
@@ -99,7 +131,21 @@ class Store:
             self.db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(value)))
 
     def settings(self):
-        return Settings(**self.setting('telegram', {})).model_dump(exclude={'clear_http_proxy'})
+        return Settings(**self.setting('telegram', {})).model_dump()
+
+    def notification_proxy(self, channel):
+        if not channel['use_proxy']:
+            return None
+        settings = self.system_settings()
+        host = settings['proxy_host']
+        if not host:
+            return None
+        if ':' in host and not host.startswith('['):
+            host = f'[{host}]'
+        auth = ''
+        if settings['proxy_username'] or settings['proxy_password']:
+            auth = quote(settings['proxy_username'], safe='') + ':' + quote(settings['proxy_password'], safe='') + '@'
+        return f"{settings['proxy_type']}://{auth}{host}:{settings['proxy_port']}"
 
     def system_settings(self):
         return SystemSettings(**self.setting('system', {})).model_dump()
@@ -181,7 +227,7 @@ class Store:
         return hmac.compare_digest(digest, value['digest'])
 
     def channels(self):
-        return [dict(r) | {'config': json.loads(r['config']), 'enabled': bool(r['enabled'])}
+        return [dict(r) | {'config': json.loads(r['config']), 'enabled': bool(r['enabled']), 'use_proxy': bool(r['use_proxy'])}
                 for r in self.db.execute('SELECT * FROM channels ORDER BY id')]
 
     def channel(self, channel_id):
@@ -189,11 +235,11 @@ class Store:
 
     def save_channel(self, model, channel_id=None):
         with self.db:
-            values = (model.name, model.kind, model.enabled, json.dumps(model.config))
+            values = (model.name, model.kind, model.enabled, json.dumps(model.config), model.use_proxy, model.max_attempts)
             if channel_id is None:
-                channel_id = self.db.execute('INSERT INTO channels(name,kind,enabled,config) VALUES (?,?,?,?)', values).lastrowid
+                channel_id = self.db.execute('INSERT INTO channels(name,kind,enabled,config,use_proxy,max_attempts) VALUES (?,?,?,?,?,?)', values).lastrowid
             else:
-                self.db.execute('UPDATE channels SET name=?,kind=?,enabled=?,config=? WHERE id=?', (*values, channel_id))
+                self.db.execute('UPDATE channels SET name=?,kind=?,enabled=?,config=?,use_proxy=?,max_attempts=? WHERE id=?', (*values, channel_id))
         return channel_id
 
     def notification_templates(self):

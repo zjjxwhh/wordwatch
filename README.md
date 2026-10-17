@@ -47,7 +47,7 @@ docker run -d --name wordwatch --restart unless-stopped \
 
 Bot Token 从 [@BotFather](https://t.me/BotFather) 获取，私聊接收者需先向 Bot 发送 `/start`。Bark 填写服务根地址和 Device Key，使用 POST `/push`，支持图标、铃声及额外 JSON 参数。
 
-Telegram SOCKS5 代理与通知 HTTP 代理可在页面设置。容器访问宿主机代理时，不能使用容器自身的 `127.0.0.1`。
+在系统设置中配置统一的 SOCKS5 / HTTP CONNECT 代理，Telegram 连接和每个推送渠道分别勾选“使用代理”。最大推送尝试次数在每个渠道中设置（默认 10 次，包含首次发送）。升级时自动迁移旧代理及重试设置；如原来 Telegram 与通知使用不同代理，以 Telegram 代理作为系统代理，请在升级后确认。容器访问宿主机代理时，不能使用容器自身的 `127.0.0.1`。
 
 ## 通知模板
 
