@@ -1,9 +1,9 @@
 # 观言 · WordWatch
 
-监控 Telegram 指定群组内指定用户的发言，通过 Telegram Bot 或 Bark 推送通知。
+监控 Telegram 指定群组内指定用户的发言，通过 Telegram Bot、Bark 或钉钉群机器人推送通知。
 
-- Web 页面管理监控项、管理员账户和推送渠道。
-- 支持多个 Bot / Bark 渠道，多选推送、跨监控项复用。
+- Web 页面管理监控项、通知模板、系统设置和推送渠道。
+- 支持多个 Bot / Bark / 钉钉渠道，多选推送、跨监控项复用。
 - 消息记录、配置和推送队列保存到 SQLite，失败自动重试。
 - Python 3.14 + uv，支持 Docker 部署。
 
@@ -11,30 +11,27 @@
 
 ### Docker Compose
 
-在项目目录执行：
+下载项目后，在包含 `docker-compose.yaml` 的目录执行：
 
 ```sh
 mkdir -p data
-sudo chown 10001:10001 data  # 仅 Linux 需要
 
 docker compose pull
 docker compose up -d
 ```
 
-Windows 使用 `New-Item -ItemType Directory -Force data` 创建目录，无需执行 `chown`。
-
 ### 使用 GHCR 镜像
 
-镜像发布成功后，可直接运行，支持 amd64 / arm64：
+可直接使用 GHCR 镜像，支持 amd64 / arm64：
 
 ```sh
+mkdir -p data
+
 docker run -d --name wordwatch --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -v "${PWD}/data:/app/data" \
   ghcr.io/zjjxwhh/wordwatch:latest
 ```
-
-同样需要先创建 data 目录并设置权限。首次拉取私有镜像需要先登录 GHCR；如需匿名拉取，将 Package 可见性设为 Public。
 
 ## 首次使用
 
@@ -42,8 +39,9 @@ docker run -d --name wordwatch --restart unless-stopped \
 
 1. **Telegram 连接**：从 [my.telegram.org](https://my.telegram.org) 获取 API ID / API Hash，保存后通过手机号、验证码及两步验证密码登录。
 2. **我的群组**：查询群 ID。监听账号必须已加入目标群。
-3. **推送渠道**：添加 Bot 或 Bark 渠道，发送测试通知。
-4. **监控项**：填写群 ID、用户 ID 或 `@username`，选择推送渠道。匹配的新消息会出现在“消息记录”中。
+3. **系统设置**：按需设置通知时区与统一代理；需要代理的 Telegram 连接或推送渠道，分别勾选“使用代理”。
+4. **推送渠道**：添加 Telegram Bot、Bark 或钉钉渠道，发送测试通知。
+5. **监控项**：填写群 ID、用户 ID 或 `@username`，选择推送渠道。匹配的新消息会出现在“消息记录”中。
 
 钉钉渠道选择“钉钉群机器人”，填写完整 Webhook；如开启加签，填写 SEC 开头的密钥。支持 @ 所有人，以文本发送模板标题和正文。关键词验证需确保模板包含配置的关键词。代理与最大尝试次数可按渠道设置。[钉钉机器人文档](https://open.dingtalk.com/document/robots/custom-robot-access)。
 
@@ -53,35 +51,45 @@ Bot Token 从 [@BotFather](https://t.me/BotFather) 获取，私聊接收者需�
 
 ## 通知模板
 
-在“通知模板”选项卡中添加、编辑和预览多套预设，初始仅提供“默认消息”预设，正文带监控项、群组、发言者、时间和链接的 emoji 标记。编辑监控项时可直接选择预设，或选择“自定义 / 默认内容”手动填写；自定义模式可导入预设后独立修改。留空沿用默认内容，Bot 使用正文，Bark 使用标题与正文。
+在“通知模板”选项卡中添加、编辑和预览多套预设，初始仅提供“默认消息”预设，正文带监控项、群组、发言者、时间和链接的 emoji 标记。编辑监控项时可直接选择预设，或选择“自定义 / 默认内容”手动填写；自定义模式可导入预设后独立修改。留空沿用默认内容，Telegram Bot 使用正文，Bark 分别使用标题和正文，钉钉将标题与正文合并为文本消息。
 
 直接引用预设的监控项会跟随其修改；导入的自定义副本不受影响。删除预设时，关联监控项保留当前内容并转为自定义。所有模板存入 SQLite。
 
-“系统设置”中可配置通知时区，默认 `Asia/Shanghai`。`{sent_at}` 等时间变量在渲染时转换到该时区，按 `YYYY-MM-DD HH:mm:ss` 输出，不显示时区标识，并自动适配夏令时。设置对新消息和预览生效，已入队通知不变；原始消息时间保留，网页消息列表仍按浏览器时区显示。
+“系统设置”中可配置通知时区，默认 `Asia/Shanghai`。`{sent_at}` 时间变量在渲染时转换到该时区，按 `YYYY-MM-DD HH:mm:ss` 输出，不显示时区标识，并自动适配夏令时。设置对新消息和预览生效，已入队通知不变；原始消息时间保留，网页消息列表仍按浏览器时区显示。
 
-```text
-{chat_title} · {sender_name}
-{text}
-{url}
-```
+标题和正文均支持以下变量，示例输出仅供参考：
 
-还支持 `{monitor_name}`、`{chat_id}`、`{sender_id}`、`{username}`（不含 @）、`{sent_at}`、`{message_id}`。自定义正文只发送模板内容，不自动附加链接；字面花括号使用 `{{` / `}}`。模板修改对新消息生效，已入队通知保持原内容。
+| 变量 | 变量说明 | 示例输出 |
+| --- | --- | --- |
+| `{monitor_name}` | 监控项名称 | 重点消息 |
+| `{chat_title}` | Telegram 群组名称 | 产品讨论群 |
+| `{chat_id}` | Telegram 群组 ID | `-1001234567890` |
+| `{sender_name}` | 发言者显示名称 | 张三 |
+| `{sender_id}` | 发言者用户 ID | `123456789` |
+| `{username}` | 发言者用户名，不含 `@`；无用户名时为 `-` | `zhangsan` |
+| `{text}` | 消息正文 | 今天下午三点开会 |
+| `{sent_at}` | 消息发送时间，按系统设置的通知时区输出 | `2026-10-17 15:00:00` |
+| `{message_id}` | 消息在所属群组内的 ID | `46` |
+| `{url}` | 原消息链接；无法生成时为空 | `https://t.me/c/1234567890/46` |
+
+自定义正文不会自动附加链接，需要时请加入 `{url}`。字面花括号使用 `{{` / `}}`。
 
 ## 数据与维护
 
 - `./data` 保存 SQLite、Telegram 登录会话和轮转日志。备份前停止服务，再复制整个目录；其中含密钥和会话，请勿公开。
 - 仅监听新消息，不抓取历史、不处理编辑或删除，也不下载媒体；停机期间不保证补发。消息与推送记录目前不自动清理。
 - 一个数据目录只运行一个实例。通知在极少数中断情况下可能重复发送。
-- 默认仅允许本机访问；远程访问请使用 HTTPS 反向代理或 SSH 隧道。
+- Compose 当前使用 `8080:8080`，会在宿主机所有网卡上开放端口；如仅允许本机或本机反向代理访问，改为 `127.0.0.1:8080:8080`。上面的 `docker run` 示例和本地开发默认仅监听本机。远程访问请使用 HTTPS 反向代理或 SSH 隧道。
+- 升级时保留原 `data` 挂载目录，服务启动时自动补充所需表和字段。建议升级前先备份；不要让两个服务实例同时使用同一目录。
 
 Compose 常用命令：
 
 ```sh
 docker compose logs -f --tail=100   # 查看日志
-docker compose pull
-docker compose up -d       # 更新并重启
-docker compose down               # 停止服务，保留 data
-docker compose run --rm wordwatch python main.py password  # 重置管理员密码
+docker compose pull                 # 拉取镜像
+docker compose up -d                # 更新并重建服务
+docker compose down                 # 停止服务
+docker compose exec wordwatch python main.py password  # 在运行中的容器内重置管理员密码
 ```
 
 ## 本地开发
@@ -91,13 +99,7 @@ docker compose run --rm wordwatch python main.py password  # 重置管理员密�
 ```sh
 uv sync --locked                   # 创建虚拟环境并安装依赖
 uv run python main.py serve        # 启动服务
-uv run pytest -q                   # 运行测试
+uv run python -m pytest -q         # 运行测试
 ```
 
 启动入口为 `main.py`，业务代码和页面资源位于 `src/`。默认使用 `data/`，可通过 `DATA_DIR` 修改。
-
-## 镜像发布
-
-[GitHub Workflow](.github/workflows/docker-publish.yml) 在 `main` 推送或手动运行时，直接构建并推送到 `ghcr.io/zjjxwhh/wordwatch`；PR 仅构建，不发布。使用自带 `GITHUB_TOKEN`，无需额外密钥。
-
-每次发布只生成两个镜像标签：`latest` 和北京时间（Asia/Shanghai）的 `YYYYMMDDHHmm` 时间戳，例如 `202610161530`。
