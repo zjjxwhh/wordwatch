@@ -63,7 +63,9 @@ async function loadMessages(append=false) {
     if(requestId===state.messageRequest){state.messageLoading=false;$('#load-more').disabled=false;}
   }
 }
-async function showPage(page) {
+function activatePage(page) {
+  if(!Object.hasOwn(names,page))page='monitors';
+  if(window.location.hash!=='#'+page)history.replaceState(null,'','#'+page);
   if(document.body.classList.contains('menu-open'))closeNavigation();
   state.page=page;
   document.querySelectorAll('.page').forEach(el=>el.hidden=el.id!=='page-'+page);
@@ -71,6 +73,11 @@ async function showPage(page) {
   const [label,description,action]=names[page];
   $('#page-title').textContent=label;$('#page-description').textContent=description;
   $('#primary-action').hidden=!action;$('#primary-action').innerHTML=action?icon('plus')+' '+escapeHTML(action):'';
+  $('.page-heading').hidden=false;
+}
+async function showPage(page) {
+  activatePage(page);
+  page=state.page;
   if(page==='templates')await refreshConfig();
   if(page==='messages')await loadMessages();
   if(page==='settings')await loadSettings();if(page==='system')await Promise.all([loadSystemSettings(),loadAdminSettings()]);
@@ -121,6 +128,7 @@ async function loadSettings(){
   }
 }
 document.querySelectorAll('.nav').forEach(el=>el.addEventListener('click',safe(()=>showPage(el.dataset.page))));
+window.addEventListener('hashchange',safe(()=>showPage(window.location.hash.slice(1))));
 $('#primary-action').addEventListener('click',()=>state.page==='monitors'?openMonitor():state.page==='templates'?openTemplate():openChannel());
 document.querySelectorAll('.close-dialog').forEach(el=>el.addEventListener('click',()=>el.closest('dialog').close()));
 formValue($('#channel-form'),'kind').addEventListener('change',switchChannelKind);
@@ -146,7 +154,7 @@ document.addEventListener('click',safe(async e=>{const button=e.target.closest('
   else if(action==='delete-channel'&&await confirmDelete('删除此渠道后，所有监控项会解除对它的引用，待发送任务会取消。')){await api('/channels/'+id,'DELETE');await refreshConfig();await refreshStatus();toast('渠道已删除');}
   else if(action==='delete-monitor'&&await confirmDelete('删除此监控项？已捕获的消息会保留在“全部监控项”消息记录中。')){await api('/monitors/'+id,'DELETE');await refreshConfig();await refreshStatus();toast('监控项已删除');}
 }));
-async function initialize(){await refreshConfig();await refreshStatus();}
+async function initialize(){activatePage(window.location.hash.slice(1)||'monitors');await refreshConfig();await refreshStatus();await showPage(state.page);}
 initialize().catch(error=>toast(error.message,true));
 setInterval(async()=>{if(state.refreshBusy||document.hidden||state.accountChanged||state.accountUpdating)return;state.refreshBusy=true;try{await refreshStatus();if(state.page==='messages'&&!state.paging&&!state.messageLoading&&!document.querySelector('dialog[open]'))await loadMessages();if(state.page==='monitors'&&!document.querySelector('dialog[open]'))await refreshConfig();}catch{$('#connection').textContent='服务连接中断';$('#connection-card').dataset.state='error';$('#login-state-card').dataset.state='error';$('#login-state').textContent='服务连接中断';}finally{state.refreshBusy=false;}},5000);
 
