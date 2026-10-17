@@ -91,3 +91,19 @@ dialog>form,dialog>.dialog-scroll{max-height:calc(90vh - 22px);overflow-y:auto;o
 @media(max-width:700px){
   .page-heading{margin:-26px -18px 24px;padding:14px 18px}
 }
+
+.nav-icon,.menu-icon{display:block;width:20px;height:20px;flex-shrink:0}.sidebar-close .menu-icon{margin:4px 0}
+
+.ui-icon{display:inline-block;width:1em;height:1em;flex-shrink:0;vertical-align:-.15em}
+.brand-icon{display:block;width:36px;height:36px;flex-shrink:0}
+.empty .symbol .ui-icon{width:28px;height:28px}
+.tag .ui-icon{width:12px;height:12px;vertical-align:-2px;margin-right:3px}
+.icon-button .ui-icon{display:block;width:20px;height:20px;margin:4px 0}
+@media(max-width:700px){.brand-icon{width:25px;height:25px}}
+
+
+.delivery-item{display:inline-flex;align-items:center;gap:6px;max-width:100%}
+.delivery-item .delivery{line-height:normal}
+.delivery-retry{display:inline-flex;align-items:center;align-self:stretch;justify-content:center;gap:4px;padding:0 8px;min-height:0;font-size:11px;line-height:1;border-radius:4px;color:var(--accent);background:#fff;border:1px solid var(--line)}
+.delivery-retry:hover{background:#edf5fc}
+.delivery-retry .ui-icon{width:1em;height:1em}
