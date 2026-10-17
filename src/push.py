@@ -16,7 +16,8 @@ async def deliver(http: httpx.AsyncClient, channel, payload):
     if channel['kind'] == 'telegram':
         url = f"https://api.telegram.org/bot{c['token']}/sendMessage"
         text = payload['body']
-        suffix = '\n\n' + payload['url'] if payload.get('url') else ''
+        link = '\n\n' + payload['url'] if payload.get('url') else ''
+        suffix = link if link and (not payload.get('custom_body') or text.endswith(link)) else ''
         if suffix and text.endswith(suffix):
             text = text[:-len(suffix)]
         text = truncate(text, 4000 - len(suffix.encode('utf-16-le')) // 2) + suffix

@@ -6,7 +6,8 @@ import secrets
 import sqlite3
 import time
 
-from .models import Settings
+from .models import Settings, SystemSettings
+from .templates import DEFAULT_TITLE, DEFAULT_BODY_TEMPLATE, DEFAULT_PRESET_TITLE, DEFAULT_PRESET_BODY
 
 
 class Store:
@@ -15,6 +16,7 @@ class Store:
         self.directory.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(self.directory / 'monitor.sqlite3', check_same_thread=False)
         self.db.row_factory = sqlite3.Row
+        templates_existed = self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notification_templates'").fetchone()
         self.db.executescript('''
         PRAGMA journal_mode=WAL;
         PRAGMA foreign_keys=ON;
@@ -23,6 +25,9 @@ class Store:
         CREATE TABLE IF NOT EXISTS channels (
           id INTEGER PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
           enabled INTEGER NOT NULL, config TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS notification_templates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+          title_template TEXT NOT NULL, body_template TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS monitors (
           id INTEGER PRIMARY KEY, name TEXT NOT NULL, chat_id INTEGER NOT NULL,
           users TEXT NOT NULL, enabled INTEGER NOT NULL);
@@ -48,6 +53,39 @@ class Store:
           token_hash TEXT PRIMARY KEY, expires_at REAL NOT NULL, account_version TEXT NOT NULL);
         PRAGMA user_version=1;
         ''')
+        columns = {row['name'] for row in self.db.execute('PRAGMA table_info(monitors)')}
+        with self.db:
+            for column in ('title_template', 'body_template'):
+                if column not in columns:
+                    self.db.execute(f"ALTER TABLE monitors ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+            if 'template_id' not in columns:
+                self.db.execute('ALTER TABLE monitors ADD COLUMN template_id INTEGER REFERENCES notification_templates(id) ON DELETE SET NULL')
+            if not templates_existed:
+                self.db.execute('INSERT INTO notification_templates(name,title_template,body_template) VALUES (?,?,?)',
+                                ('默认消息', DEFAULT_PRESET_TITLE, DEFAULT_PRESET_BODY))
+        if not self.setting('default_preset_v2', False):
+            legacy = {
+                ('标准通知', DEFAULT_TITLE, ''),
+                ('标准通知', DEFAULT_TITLE, DEFAULT_BODY_TEMPLATE),
+                ('简洁消息', '{chat_title}', '{sender_name}：{text}'),
+                ('含链接消息', '{monitor_name}', '{chat_title} · {sender_name}\n{text}\n{url}'),
+            }
+            with self.db:
+                old = [t for t in self.notification_templates() if (t['name'], t['title_template'], t['body_template']) in legacy]
+                standard = next((t for t in old if t['name'] == '标准通知'), None)
+                if standard:
+                    self.db.execute('UPDATE notification_templates SET name=?,title_template=?,body_template=? WHERE id=?',
+                                    ('默认消息', DEFAULT_PRESET_TITLE, DEFAULT_PRESET_BODY, standard['id']))
+                elif old:
+                    self.db.execute('INSERT INTO notification_templates(name,title_template,body_template) VALUES (?,?,?)',
+                                    ('默认消息', DEFAULT_PRESET_TITLE, DEFAULT_PRESET_BODY))
+                for template in old:
+                    if standard and template['id'] == standard['id']:
+                        continue
+                    self.db.execute('UPDATE monitors SET title_template=?,body_template=?,template_id=NULL WHERE template_id=?',
+                                    (template['title_template'], template['body_template'], template['id']))
+                    self.db.execute('DELETE FROM notification_templates WHERE id=?', (template['id'],))
+                self.db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', ('default_preset_v2', 'true'))
 
     def setting(self, key, default=None):
         row = self.db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
@@ -59,6 +97,9 @@ class Store:
 
     def settings(self):
         return Settings(**self.setting('telegram', {})).model_dump(exclude={'clear_http_proxy'})
+
+    def system_settings(self):
+        return SystemSettings(**self.setting('system', {})).model_dump()
 
     @staticmethod
     def password_record(password, username):
@@ -144,6 +185,38 @@ class Store:
                 self.db.execute('UPDATE channels SET name=?,kind=?,enabled=?,config=? WHERE id=?', (*values, channel_id))
         return channel_id
 
+    def notification_templates(self):
+        return [dict(r) for r in self.db.execute('SELECT * FROM notification_templates ORDER BY id')]
+
+    def notification_template(self, template_id):
+        row = self.db.execute('SELECT * FROM notification_templates WHERE id=?', (template_id,)).fetchone()
+        return dict(row) if row else None
+
+    def save_notification_template(self, model, template_id=None):
+        with self.db:
+            values = (model.name, model.title_template, model.body_template)
+            if template_id is None:
+                template_id = self.db.execute('INSERT INTO notification_templates(name,title_template,body_template) VALUES (?,?,?)', values).lastrowid
+            else:
+                self.db.execute('UPDATE notification_templates SET name=?,title_template=?,body_template=? WHERE id=?', (*values, template_id))
+        return template_id
+
+    def delete_notification_template(self, template_id):
+        template = self.notification_template(template_id)
+        if not template:
+            return
+        with self.db:
+            # Preserve the current contents when detaching linked monitors.
+            self.db.execute('UPDATE monitors SET title_template=?,body_template=?,template_id=NULL WHERE template_id=?',
+                            (template['title_template'], template['body_template'], template_id))
+            self.db.execute('DELETE FROM notification_templates WHERE id=?', (template_id,))
+
+    def apply_notification_template(self, item):
+        template = self.notification_template(item['template_id']) if item.get('template_id') else None
+        if template:
+            item.update(title_template=template['title_template'], body_template=template['body_template'])
+        return item
+
     def monitors(self):
         result = []
         for row in self.db.execute('SELECT * FROM monitors ORDER BY id'):
@@ -152,7 +225,7 @@ class Store:
             item['enabled'] = bool(item['enabled'])
             item['channel_ids'] = [r[0] for r in self.db.execute('SELECT channel_id FROM monitor_channels WHERE monitor_id=?', (item['id'],))]
             item['message_count'] = self.db.execute('SELECT COUNT(*) FROM messages WHERE monitor_id=?', (item['id'],)).fetchone()[0]
-            result.append(item)
+            result.append(self.apply_notification_template(item))
         return result
 
     def rules_for_chat(self, chat_id):
@@ -161,19 +234,24 @@ class Store:
             item = dict(row)
             item['users'] = json.loads(item['users'])
             item['channel_ids'] = [r[0] for r in self.db.execute('SELECT channel_id FROM monitor_channels WHERE monitor_id=?', (item['id'],))]
-            result.append(item)
+            result.append(self.apply_notification_template(item))
         return result
 
     def save_monitor(self, model, monitor_id=None):
         channel_ids = set(model.channel_ids)
         if not channel_ids <= {c['id'] for c in self.channels()}:
             raise ValueError('选择的渠道不存在')
+        template = self.notification_template(model.template_id) if model.template_id else None
+        if model.template_id and not template:
+            raise ValueError('选择的通知模板不存在')
+        title = template['title_template'] if template else model.title_template
+        body = template['body_template'] if template else model.body_template
         with self.db:
-            values = (model.name, model.chat_id, json.dumps(model.users), model.enabled)
+            values = (model.name, model.chat_id, json.dumps(model.users), model.enabled, title, body, model.template_id)
             if monitor_id is None:
-                monitor_id = self.db.execute('INSERT INTO monitors(name,chat_id,users,enabled) VALUES (?,?,?,?)', values).lastrowid
+                monitor_id = self.db.execute('INSERT INTO monitors(name,chat_id,users,enabled,title_template,body_template,template_id) VALUES (?,?,?,?,?,?,?)', values).lastrowid
             else:
-                self.db.execute('UPDATE monitors SET name=?,chat_id=?,users=?,enabled=? WHERE id=?', (*values, monitor_id))
+                self.db.execute('UPDATE monitors SET name=?,chat_id=?,users=?,enabled=?,title_template=?,body_template=?,template_id=? WHERE id=?', (*values, monitor_id))
                 self.db.execute('DELETE FROM monitor_channels WHERE monitor_id=?', (monitor_id,))
             self.db.executemany('INSERT INTO monitor_channels VALUES (?,?)', [(monitor_id, c) for c in channel_ids])
         return monitor_id

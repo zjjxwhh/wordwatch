@@ -1,5 +1,8 @@
 from typing import Annotated, Literal
+
+from .templates import validate_template
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
@@ -44,12 +47,27 @@ class Channel(Input):
         return self
 
 
-class Monitor(Input):
+class TemplateFields(Input):
+    title_template: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(default='', max_length=500)
+    body_template: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(default='', max_length=10000)
+
+    @field_validator('title_template', 'body_template')
+    @classmethod
+    def valid_template(cls, value):
+        return validate_template(value)
+
+
+class NotificationTemplate(TemplateFields):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class Monitor(TemplateFields):
     name: str = Field(min_length=1, max_length=100)
     chat_id: int = Field(lt=0, ge=-SQLITE_MAX_ID)
     users: list[int | str] = Field(min_length=1, max_length=1000)
     channel_ids: list[PositiveID] = Field(default_factory=list, max_length=100)
     enabled: bool = True
+    template_id: PositiveID | None = None
 
     @field_validator('users')
     @classmethod
@@ -139,3 +157,16 @@ class AdminLogin(Input):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=False)
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=256)
+
+
+class SystemSettings(Input):
+    timezone: str = Field(default='Asia/Shanghai', min_length=1, max_length=100)
+
+    @field_validator('timezone')
+    @classmethod
+    def valid_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError('无效时区，请填写 IANA 时区名，例如 Asia/Shanghai 或 UTC') from None
+        return value

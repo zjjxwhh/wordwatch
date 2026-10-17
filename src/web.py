@@ -12,9 +12,10 @@ from fastapi.staticfiles import StaticFiles
 import httpx
 
 from .db import Store
-from .models import AdminLogin, AdminSetup, AdminUpdate, Channel, LoginCode, LoginVerify, Monitor, Settings, PositiveID
+from .models import AdminLogin, AdminSetup, AdminUpdate, Channel, LoginCode, LoginVerify, Monitor, Settings, PositiveID, TemplateFields, NotificationTemplate, SystemSettings
 from .push import deliver
 from .runtime import Runtime
+from .templates import render_notification
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -140,6 +141,15 @@ def create_app(directory='data', background=True):
 
     api_auth = [Depends(auth)]
 
+    @app.get('/api/system-settings', dependencies=api_auth)
+    async def system_settings():
+        return store.system_settings()
+
+    @app.put('/api/system-settings', dependencies=api_auth)
+    async def save_system_settings(model: SystemSettings):
+        store.set_setting('system', model.model_dump())
+        return {'ok': True}
+
     @app.get('/api/admin', dependencies=api_auth)
     async def admin_info():
         return {'username': store.setting('admin').get('username', 'admin')}
@@ -218,6 +228,34 @@ def create_app(directory='data', background=True):
         except Exception as exc:
             raise HTTPException(502, f'测试推送失败：{type(exc).__name__}') from None
         return {'ok': True}
+
+    @app.get('/api/templates', dependencies=api_auth)
+    async def list_templates():
+        return store.notification_templates()
+
+    @app.post('/api/templates', dependencies=api_auth)
+    async def add_template(model: NotificationTemplate):
+        return {'id': store.save_notification_template(model)}
+
+    @app.put('/api/templates/{template_id}', dependencies=api_auth)
+    async def edit_template(template_id: PositiveID, model: NotificationTemplate):
+        if not store.notification_template(template_id):
+            raise HTTPException(404, '通知模板不存在')
+        return {'id': store.save_notification_template(model, template_id)}
+
+    @app.delete('/api/templates/{template_id}', dependencies=api_auth)
+    async def delete_template(template_id: PositiveID):
+        store.delete_notification_template(template_id)
+        return {'ok': True}
+
+    @app.post('/api/templates/preview', dependencies=api_auth)
+    async def preview_template(model: TemplateFields):
+        rule = {'name': '示例监控项', **model.model_dump()}
+        message = {'chat_title': '示例群组', 'chat_id': -1001234567890,
+                   'sender_name': 'Alice', 'sender_id': 123456789, 'username': 'alice',
+                   'text': '这是一条示例消息。', 'sent_at': '2026-10-17T12:00:00+08:00',
+                   'message_id': 123, 'url': 'https://t.me/c/1234567890/123'}
+        return render_notification(rule, message, store.system_settings()['timezone'])
 
     @app.get('/api/monitors', dependencies=api_auth)
     async def monitors():

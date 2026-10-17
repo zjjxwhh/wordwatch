@@ -1,8 +1,8 @@
 'use strict';
 const $ = s => document.querySelector(s);
-const state = {page:'monitors', monitors:[], channels:[], messages:[], paging:false, refreshBusy:false};
+const state = {page:'monitors', monitors:[], channels:[], templates:[], messages:[], paging:false, refreshBusy:false};
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const names = {admin:['管理员账户','管理你的登录信息。','修改管理员账户和密码，维护工作空间访问权限。',''],monitors:['监控项','让重要发言，及时抵达。','按群组和用户追踪消息，将通知送达你选择的渠道。','＋ 新建监控项'],messages:['消息记录','每一条信号，都有迹可循。','查看捕获的消息、推送结果，随时回到原始对话。',''],channels:['推送渠道','一个渠道，连接多处关注。','配置 Telegram Bot 与 Bark，在不同监控项中灵活复用。','＋ 新建渠道'],settings:['Telegram 连接','连接你的 Telegram。','在这里完成账号登录、网络设置和群组查询。','']};
+const names = {templates:['通知模板','让每条通知，恰如其分。','维护可复用的预设模板，或在监控项中导入后自由修改。','＋ 新建模板'],system:['系统设置','管理你的工作空间。','设置通知时区，管理管理员账户与密码。',''],monitors:['监控项','让重要发言，及时抵达。','按群组和用户追踪消息，将通知送达你选择的渠道。','＋ 新建监控项'],messages:['消息记录','每一条信号，都有迹可循。','查看捕获的消息、推送结果，随时回到原始对话。',''],channels:['推送渠道','一个渠道，连接多处关注。','配置 Telegram Bot 与 Bark，在不同监控项中灵活复用。','＋ 新建渠道'],settings:['Telegram 连接','连接你的 Telegram。','在这里完成账号登录、网络设置和群组查询。','']};
 const formValue = (form, name) => form.elements.namedItem(name);
 let toastTimer;
 function toast(message, error=false) { const el=$('#toast'); el.textContent=message; el.classList.toggle('error',error); el.hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.hidden=true,5000); }
@@ -24,11 +24,16 @@ function renderMonitors() {
 function renderChannels() {
   $('#channel-list').innerHTML=state.channels.map(c=>`<article class="card"><div class="card-top"><h3>${escapeHTML(c.name)}</h3><span class="tag ${c.enabled?'on':'off'}">${c.enabled?'● 已启用':'已暂停'}</span></div><div class="card-data"><b>${c.kind==='telegram'?'Telegram Bot':'Bark · POST /push'}</b><br>${escapeHTML(c.kind==='telegram'?`接收 Chat ID：${c.config.chat_id}`:c.config.server)}<br>被 <b>${state.monitors.filter(m=>m.channel_ids.includes(c.id)).length}</b> 个监控项使用</div><div class="chips"><span class="chip">${c.kind==='telegram'?'Bot Token 已保存':'Device Key 已保存'}</span>${c.kind==='bark'&&c.config.params?.sound?`<span class="chip">♫ ${escapeHTML(c.config.params.sound)}</span>`:''}</div><div class="card-actions"><button class="link-button" data-action="test-channel" data-id="${c.id}">测试推送 ↗</button><button class="link-button" data-action="edit-channel" data-id="${c.id}">编辑</button><button class="link-button delete" data-action="delete-channel" data-id="${c.id}">删除</button></div></article>`).join('') || empty('⇄','建立你的通知网络','添加多个 Bot 或 Bark 渠道，在监控项中自由组合。');
 }
+function formatMessageTime(value){
+  const date=new Date(value),pad=n=>String(n).padStart(2,'0');
+  if(Number.isNaN(date.getTime()))return '';
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
 function renderMessages() {
   const statuses={sent:'已发送',pending:'等待推送',failed:'推送失败',cancelled:'已取消'};
-  $('#message-list').innerHTML=state.messages.map(m=>`<article class="message"><div class="message-head"><b>${escapeHTML(m.monitor_name)} · ${escapeHTML(m.chat_title)}</b><span>${escapeHTML(new Date(m.sent_at).toLocaleString())}</span></div><p class="hint">${escapeHTML(m.sender_name)} ${m.username?'@'+escapeHTML(m.username):''} · 用户 ${m.sender_id ?? '未知'} · 消息 #${m.message_id}</p><div class="message-text">${escapeHTML(m.text)}</div><div class="message-foot">${m.deliveries.map(d=>`<span class="delivery ${d.status}" title="${escapeHTML(d.error || '')}">${escapeHTML(d.channel_name)} · ${statuses[d.status] || escapeHTML(d.status)}${d.attempts?` (${d.attempts})`:''}${d.status==='failed'&&d.channel_id?` <button data-action="retry" data-id="${d.id}">重试 ↻</button>`:''}</span>`).join('') || '<span class="muted">仅记录 / 捕获时无启用的渠道</span>'}${m.url?`<a href="${escapeHTML(m.url)}" target="_blank" rel="noopener noreferrer">打开原消息 ↗</a>`:''}</div></article>`).join('') || empty('☷','这里会留下新的消息','启用监控并登录 Telegram 后，匹配到的发言会显示在这里。');
+  $('#message-list').innerHTML=state.messages.map(m=>`<article class="message"><div class="message-head"><b>${escapeHTML(m.monitor_name)} · ${escapeHTML(m.chat_title)}</b><span>${escapeHTML(formatMessageTime(m.sent_at))}</span></div><p class="hint">${escapeHTML(m.sender_name)} ${m.username?'@'+escapeHTML(m.username):''} · 用户 ${m.sender_id ?? '未知'} · 消息 #${m.message_id}</p><div class="message-text">${escapeHTML(m.text)}</div><div class="message-foot">${m.deliveries.map(d=>`<span class="delivery ${d.status}" title="${escapeHTML(d.error || '')}">${escapeHTML(d.channel_name)} · ${statuses[d.status] || escapeHTML(d.status)}${d.attempts?` (${d.attempts})`:''}${d.status==='failed'&&d.channel_id?` <button data-action="retry" data-id="${d.id}">重试 ↻</button>`:''}</span>`).join('') || '<span class="muted">仅记录 / 捕获时无启用的渠道</span>'}${m.url?`<a href="${escapeHTML(m.url)}" target="_blank" rel="noopener noreferrer">打开原消息 ↗</a>`:''}</div></article>`).join('') || empty('☷','这里会留下新的消息','启用监控并登录 Telegram 后，匹配到的发言会显示在这里。');
 }
-async function refreshConfig() { [state.monitors,state.channels]=await Promise.all([api('/monitors'),api('/channels')]);renderMonitors();renderChannels(); }
+async function refreshConfig() { [state.monitors,state.channels,state.templates]=await Promise.all([api('/monitors'),api('/channels'),api('/templates')]);renderMonitors();renderChannels();renderTemplates(); }
 async function refreshStatus() {
   const s=await api('/status');
   for(const name of ['monitors','messages','channels','failed']) $('#stat-'+name).textContent=s.counts[name];
@@ -61,17 +66,19 @@ async function showPage(page) {
   const [label,title,description,action]=names[page];
   $('#breadcrumb').textContent=label;$('#page-title').textContent=title;$('#page-description').textContent=description;
   $('#primary-action').hidden=!action;$('#primary-action').textContent=action;
+  if(page==='templates')await refreshConfig();
   if(page==='messages')await loadMessages();
-  if(page==='settings')await loadSettings();if(page==='admin'&&!state.accountChanged){const f=$('#admin-form');f.querySelectorAll('input,button').forEach(el=>el.disabled=true);try{const info=await api('/admin');formValue(f,'username').value=info.username;}finally{f.querySelectorAll('input,button').forEach(el=>el.disabled=false);}}
+  if(page==='settings')await loadSettings();if(page==='system')await Promise.all([loadSystemSettings(),loadAdminSettings()]);
 }
 function openMonitor(id) {
   const f=$('#monitor-form');f.reset();
   const m=state.monitors.find(m=>m.id===id);
   formValue(f,'id').value=id || '';formValue(f,'enabled').checked=m?.enabled??true;
-  for(const key of ['name','chat_id'])formValue(f,key).value=m?.[key]??'';
+  for(const key of ['name','chat_id','title_template','body_template'])formValue(f,key).value=m?.[key]??'';$('#template-preview').hidden=true;
   formValue(f,'users').value=m?.users.join('\n')??'';
   $('#monitor-dialog-title').textContent=id?'编辑监控项':'新建监控项';
   $('#channel-choices').innerHTML=state.channels.map(c=>`<label class="check"><input type="checkbox" name="channels" value="${c.id}" ${m?.channel_ids.includes(c.id)?'checked':''}>${escapeHTML(c.name)} <small>${c.kind}${c.enabled?'':' · 已暂停'}</small></label>`).join('') || '<p class="hint">还没有推送渠道，可稍后在“推送渠道”页面添加。</p>';
+  configureMonitorTemplates(m);
   $('#monitor-dialog').showModal();
 }
 const barkFields=['icon','sound','group','level','badge','volume','autoCopy','call','isArchive','copy'];
@@ -105,10 +112,10 @@ async function loadSettings(){
   }
 }
 document.querySelectorAll('.nav').forEach(el=>el.addEventListener('click',safe(()=>showPage(el.dataset.page))));
-$('#primary-action').addEventListener('click',()=>state.page==='monitors'?openMonitor():openChannel());
+$('#primary-action').addEventListener('click',()=>state.page==='monitors'?openMonitor():state.page==='templates'?openTemplate():openChannel());
 document.querySelectorAll('.close-dialog').forEach(el=>el.addEventListener('click',()=>el.closest('dialog').close()));
 formValue($('#channel-form'),'kind').addEventListener('change',switchChannelKind);
-$('#monitor-form').addEventListener('submit',safe(async e=>{e.preventDefault();const f=e.target,id=formValue(f,'id').value;const users=formValue(f,'users').value.split(/[\s,，]+/).filter(Boolean).map(u=>/^\d+$/.test(u)?Number(u):u);await api('/monitors'+(id?'/'+id:''),id?'PUT':'POST',{name:formValue(f,'name').value,chat_id:Number(formValue(f,'chat_id').value),users,enabled:formValue(f,'enabled').checked,channel_ids:[...f.querySelectorAll('input[name="channels"]:checked')].map(el=>Number(el.value))});$('#monitor-dialog').close();await refreshConfig();await refreshStatus();toast('监控项已保存，即时生效');}));
+$('#monitor-form').addEventListener('submit',safe(async e=>{e.preventDefault();const f=e.target,id=formValue(f,'id').value;const users=formValue(f,'users').value.split(/[\s,，]+/).filter(Boolean).map(u=>/^\d+$/.test(u)?Number(u):u);await api('/monitors'+(id?'/'+id:''),id?'PUT':'POST',{name:formValue(f,'name').value,chat_id:Number(formValue(f,'chat_id').value),users,template_id:formValue(f,'template_id').value==='custom'?null:Number(formValue(f,'template_id').value),title_template:formValue(f,'title_template').value,body_template:formValue(f,'body_template').value,enabled:formValue(f,'enabled').checked,channel_ids:[...f.querySelectorAll('input[name="channels"]:checked')].map(el=>Number(el.value))});$('#monitor-dialog').close();await refreshConfig();await refreshStatus();toast('监控项已保存，即时生效');}));
 $('#channel-form').addEventListener('submit',safe(async e=>{
   e.preventDefault();const f=e.target,id=formValue(f,'id').value,kind=formValue(f,'kind').value;let config;
   if(kind==='telegram'){config={token:formValue(f,'token').value,chat_id:formValue(f,'chat_id').value,disable_notification:formValue(f,'disable_notification').checked};if(formValue(f,'message_thread_id').value)config.message_thread_id=Number(formValue(f,'message_thread_id').value);}
@@ -146,3 +153,102 @@ $('#admin-form').addEventListener('submit',safe(async e=>{
 }));
 
 $('#logout').addEventListener('click',safe(async()=>{state.accountUpdating=true;try{await api('/auth/logout','POST');window.location.replace('/login');}finally{state.accountUpdating=false;}}));
+
+$('#preview-template').addEventListener('click',safe(async e=>{
+  const button=e.target,f=$('#monitor-form');button.disabled=true;
+  try{
+    const result=await api('/templates/preview','POST',{title_template:formValue(f,'title_template').value,body_template:formValue(f,'body_template').value});
+    $('#template-preview-title').textContent=result.title;
+    $('#template-preview-body').textContent=result.body;
+    $('#template-preview').hidden=false;
+  }finally{button.disabled=false;}
+}));
+for(const key of ['title_template','body_template'])formValue($('#monitor-form'),key).addEventListener('input',()=>$('#template-preview').hidden=true);
+
+function renderTemplates(){
+  $('#template-list').innerHTML=state.templates.map(t=>`<article class="card template-card"><div class="card-top"><h3>${escapeHTML(t.name)}</h3><span class="chip">${state.monitors.filter(m=>m.template_id===t.id).length} 个监控项引用</span></div><p class="hint">标题：${escapeHTML(t.title_template||'默认标题')}</p><pre class="template-snippet">${escapeHTML(t.body_template||'使用默认通知正文')}</pre><div class="card-actions"><button type="button" class="link-button" data-template-action="edit" data-id="${t.id}">编辑</button><button type="button" class="link-button delete" data-template-action="delete" data-id="${t.id}">删除</button></div></article>`).join('')||empty('▤','添加你的第一套模板','在监控项中引用，或导入后修改。');
+}
+function openTemplate(id){
+  const f=$('#preset-form'),t=state.templates.find(t=>t.id===id);f.reset();
+  formValue(f,'id').value=id||'';
+  for(const key of ['name','title_template','body_template'])formValue(f,key).value=t?.[key]??'';
+  $('#preset-dialog-title').textContent=id?'编辑通知模板':'新建通知模板';
+  $('#preset-preview').hidden=true;$('#preset-dialog').showModal();
+}
+function configureMonitorTemplates(m){
+  const f=$('#monitor-form'),select=formValue(f,'template_id');
+  select.innerHTML='<option value="custom">自定义 / 默认内容</option>'+state.templates.map(t=>`<option value="${t.id}">${escapeHTML(t.name)}</option>`).join('');
+  select.value=m?.template_id?String(m.template_id):'custom';
+  if(!select.value)select.value='custom';
+  $('#import-preset').innerHTML='<option value="">选择要导入的预设</option>'+state.templates.map(t=>`<option value="${t.id}">${escapeHTML(t.name)}</option>`).join('');
+  state.monitorTemplateMode=select.value;
+  state.customTemplateDraft={title_template:formValue(f,'title_template').value,body_template:formValue(f,'body_template').value};
+  applyMonitorTemplateMode();
+}
+function applyMonitorTemplateMode(){
+  const f=$('#monitor-form'),value=formValue(f,'template_id').value,custom=value==='custom';
+  $('#template-import').hidden=!custom;
+  const preset=state.templates.find(t=>String(t.id)===value);
+  for(const key of ['title_template','body_template']){
+    const el=formValue(f,key);el.readOnly=!custom;
+    if(preset)el.value=preset[key];
+  }
+  $('#template-preview').hidden=true;
+}
+formValue($('#monitor-form'),'template_id').addEventListener('change',()=>{
+  const f=$('#monitor-form'),next=formValue(f,'template_id').value;
+  if(state.monitorTemplateMode==='custom'){
+    state.customTemplateDraft={title_template:formValue(f,'title_template').value,body_template:formValue(f,'body_template').value};
+  }
+  if(next==='custom'){
+    for(const key of ['title_template','body_template'])formValue(f,key).value=state.customTemplateDraft[key];
+    $('#import-preset').value=state.monitorTemplateMode==='custom'?'':state.monitorTemplateMode;
+  }
+  state.monitorTemplateMode=next;applyMonitorTemplateMode();
+});
+$('#import-template').addEventListener('click',()=>{
+  const preset=state.templates.find(t=>String(t.id)===$('#import-preset').value);
+  if(!preset){toast('请先选择要导入的预设',true);return;}
+  const f=$('#monitor-form');
+  for(const key of ['title_template','body_template'])formValue(f,key).value=preset[key];
+  $('#template-preview').hidden=true;toast('已导入为自定义副本，可直接修改');
+});
+$('#preset-form').addEventListener('submit',safe(async e=>{
+  e.preventDefault();const f=e.target,id=formValue(f,'id').value;
+  await api('/templates'+(id?'/'+id:''),id?'PUT':'POST',{name:formValue(f,'name').value,title_template:formValue(f,'title_template').value,body_template:formValue(f,'body_template').value});
+  $('#preset-dialog').close();await refreshConfig();toast('通知模板已保存');
+}));
+$('#preview-preset').addEventListener('click',safe(async e=>{
+  const button=e.target,f=$('#preset-form');button.disabled=true;
+  try{
+    const result=await api('/templates/preview','POST',{title_template:formValue(f,'title_template').value,body_template:formValue(f,'body_template').value});
+    $('#preset-preview-title').textContent=result.title;$('#preset-preview-body').textContent=result.body;$('#preset-preview').hidden=false;
+  }finally{button.disabled=false;}
+}));
+for(const key of ['title_template','body_template'])formValue($('#preset-form'),key).addEventListener('input',()=>$('#preset-preview').hidden=true);
+document.addEventListener('click',safe(async e=>{
+  const button=e.target.closest('[data-template-action]');if(!button)return;
+  const id=Number(button.dataset.id);
+  if(button.dataset.templateAction==='edit')openTemplate(id);
+  else if(await confirmDelete('删除此预设？引用它的监控项将保留当前模板内容并转为自定义。')){
+    await api('/templates/'+id,'DELETE');await refreshConfig();toast('预设已删除，监控项内容已保留');
+  }
+}));
+
+async function loadSystemSettings(){
+  const f=$('#system-settings-form');f.querySelectorAll('input,button').forEach(el=>el.disabled=true);
+  try{const settings=await api('/system-settings');formValue(f,'timezone').value=settings.timezone;}
+  finally{f.querySelectorAll('input,button').forEach(el=>el.disabled=false);}
+}
+$('#system-settings-form').addEventListener('submit',safe(async e=>{
+  e.preventDefault();const f=e.target,button=f.querySelector('button');button.disabled=true;
+  try{await api('/system-settings','PUT',{timezone:formValue(f,'timezone').value});toast('通知时区已保存');}
+  finally{button.disabled=false;}
+}));
+
+async function loadAdminSettings(){
+  if(state.accountChanged)return;
+  const f=$('#admin-form');f.querySelectorAll('input,button').forEach(el=>el.disabled=true);
+  try{const info=await api('/admin');formValue(f,'username').value=info.username;}
+  finally{f.querySelectorAll('input,button').forEach(el=>el.disabled=false);}
+}

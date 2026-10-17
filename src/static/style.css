@@ -5,3 +5,10 @@
 
 .logout-button{display:block;margin-top:14px;padding:7px 12px;font-size:11px}
 @media(max-width:700px){.sidebar-foot{display:block;border-top:0;margin-top:8px;padding:0}.sidebar-foot>.pulse,.sidebar-foot>#connection,.sidebar-foot>small{display:none}.logout-button{margin:0 0 0 auto}}
+
+.template-preview-body{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0;max-height:220px;overflow:auto}
+
+.template-import{display:flex;align-items:flex-end;gap:12px;margin-bottom:16px}.template-import label{flex:1;margin:0}.template-import button{flex-shrink:0}.template-snippet{white-space:pre-wrap;overflow-wrap:anywhere;min-height:190px;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.8;color:#56738e}input[readonly],textarea[readonly]{background:#edf3f9;color:#6d8193}
+@media(max-width:500px){.template-import{flex-direction:column;align-items:stretch}}
+
+.template-card{min-height:360px;display:flex;flex-direction:column}.template-card .card-actions{margin-top:auto}.system-settings-grid{grid-template-columns:1fr 1fr;align-items:start}.system-settings-grid .admin-panel{max-width:none;min-width:0}@media(max-width:1050px){.system-settings-grid{grid-template-columns:1fr}}

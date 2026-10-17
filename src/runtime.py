@@ -9,6 +9,7 @@ from telethon import TelegramClient, events, utils
 from telethon.errors import SessionPasswordNeededError
 
 from .push import deliver
+from .templates import render_notification
 
 log = logging.getLogger('monitor')
 
@@ -142,10 +143,7 @@ class Runtime:
                        'sender_name': name, 'username': username, 'chat_title': title, 'text': text,
                        'url': url, 'sent_at': event.date.isoformat()}
             for rule in matched:
-                body = f"{rule['name']} · {title}\n{name} (@{username or '-'}) [ID: {event.sender_id}]\n{event.date.isoformat()}\n\n{text}"
-                if url:
-                    body += f'\n\n{url}'
-                self.store.record(rule, message, {'title': f"{rule['name']} · {title}", 'body': body, 'url': url})
+                self.store.record(rule, message, render_notification(rule, message, self.store.system_settings()['timezone']))
         except Exception as exc:
             log.error('Message handling failed: chat=%s message=%s error=%s', event.chat_id, event.id, type(exc).__name__)
 
