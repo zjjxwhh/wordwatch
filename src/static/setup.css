@@ -11,3 +11,8 @@
 .auth-message{color:#a64138;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
 .setup-link{cursor:pointer}
 @media(max-width:500px){.setup-panel{padding:24px}}
+
+/* Equal outer rows keep the login card centered independently of the branding and footnote. */
+.login-body .setup-main{display:grid;grid-template-rows:minmax(max-content,1fr) auto minmax(max-content,1fr);min-height:calc(100vh - 64px);min-height:calc(100dvh - 64px)}
+.login-body .setup-main>.brand{align-self:end}
+.login-body .setup-foot{align-self:start;margin:14px 0 0}
