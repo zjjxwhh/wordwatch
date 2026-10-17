@@ -45,6 +45,8 @@ docker run -d --name wordwatch --restart unless-stopped \
 3. **推送渠道**：添加 Bot 或 Bark 渠道，发送测试通知。
 4. **监控项**：填写群 ID、用户 ID 或 `@username`，选择推送渠道。匹配的新消息会出现在“消息记录”中。
 
+钉钉渠道选择“钉钉群机器人”，填写完整 Webhook；如开启加签，填写 SEC 开头的密钥。支持 @ 所有人，以文本发送模板标题和正文。关键词验证需确保模板包含配置的关键词。代理与最大尝试次数可按渠道设置。[钉钉机器人文档](https://open.dingtalk.com/document/robots/custom-robot-access)。
+
 Bot Token 从 [@BotFather](https://t.me/BotFather) 获取，私聊接收者需先向 Bot 发送 `/start`。Bark 填写服务根地址和 Device Key，使用 POST `/push`，支持图标、铃声及额外 JSON 参数。
 
 在系统设置中配置统一的 SOCKS5 / HTTP CONNECT 代理，Telegram 连接和每个推送渠道分别勾选“使用代理”。最大推送尝试次数在每个渠道中设置（默认 10 次，包含首次发送）。升级时自动迁移旧代理及重试设置；如原来 Telegram 与通知使用不同代理，以 Telegram 代理作为系统代理，请在升级后确认。容器访问宿主机代理时，不能使用容器自身的 `127.0.0.1`。

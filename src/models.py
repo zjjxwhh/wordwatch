@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 
 from .templates import validate_template
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
@@ -17,7 +17,7 @@ class Input(BaseModel):
 
 class Channel(Input):
     name: str = Field(min_length=1, max_length=100)
-    kind: Literal['telegram', 'bark']
+    kind: Literal['telegram', 'bark', 'dingtalk']
     enabled: bool = True
     config: dict
     use_proxy: bool = False
@@ -26,7 +26,7 @@ class Channel(Input):
     @model_validator(mode='after')
     def validate_config(self):
         c = self.config
-        required = ('token', 'chat_id') if self.kind == 'telegram' else ('server', 'device_key')
+        required = {'telegram': ('token', 'chat_id'), 'bark': ('server', 'device_key'), 'dingtalk': ('webhook',)}[self.kind]
         for key in required:
             value = c.get(key)
             if key == 'chat_id' and type(value) is int:
@@ -46,6 +46,16 @@ class Channel(Input):
                 raise ValueError('Bark params 必须为 JSON 对象')
             if set(c.get('params', {})) & {'device_key', 'body', 'title'}:
                 raise ValueError('额外参数不能覆盖 device_key/body/title')
+        if self.kind == 'dingtalk':
+            url = urlsplit(c['webhook'])
+            if (url.scheme != 'https' or url.hostname != 'oapi.dingtalk.com'
+                    or url.path != '/robot/send' or url.username or url.fragment
+                    or url.port not in (None, 443) or not parse_qs(url.query).get('access_token', [''])[0].strip()):
+                raise ValueError('请填写有效的钉钉群机器人 Webhook 地址')
+            if not isinstance(c.get('secret', ''), str):
+                raise ValueError('加签密钥必须为文本')
+            if type(c.get('at_all', False)) is not bool:
+                raise ValueError('是否 @ 所有人必须为布尔值')
         return self
 
 

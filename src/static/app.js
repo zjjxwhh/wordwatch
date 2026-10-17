@@ -2,7 +2,7 @@
 const $ = s => document.querySelector(s);
 const state = {page:'monitors', monitors:[], channels:[], templates:[], messages:[], paging:false, refreshBusy:false};
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const names = {templates:['通知模板','自定义通知标题与正文，在监控项中选择使用','＋ 新建模板'],system:['系统设置','设置通知时区与代理，管理管理员账户和密码',''],monitors:['监控项','按群组和用户追踪消息，将通知送达你选择的渠道。','＋ 新建监控项'],messages:['消息记录','查看捕获的消息、推送结果，随时回到原始对话。',''],channels:['推送渠道','配置 Telegram Bot 与 Bark，在不同监控项中灵活复用。','＋ 新建渠道'],settings:['Telegram 连接','配置 Telegram API、登录账号并查询群组','']};
+const names = {templates:['通知模板','自定义通知标题与正文，在监控项中选择使用','＋ 新建模板'],system:['系统设置','设置通知时区与代理，管理管理员账户和密码',''],monitors:['监控项','按群组和用户追踪消息，将通知送达你选择的渠道。','＋ 新建监控项'],messages:['消息记录','查看捕获的消息、推送结果，随时回到原始对话。',''],channels:['推送渠道','配置 Telegram Bot、Bark 与钉钉，在不同监控项中灵活复用','＋ 新建渠道'],settings:['Telegram 连接','配置 Telegram API、登录账号并查询群组','']};
 const formValue = (form, name) => form.elements.namedItem(name);
 let toastTimer;
 function toast(message, error=false) { const el=$('#toast'); el.textContent=message; el.classList.toggle('error',error); el.hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.hidden=true,5000); }
@@ -21,7 +21,7 @@ function renderMonitors() {
   filter.value=selected;
 }
 function renderChannels() {
-  $('#channel-list').innerHTML=state.channels.map(c=>`<article class="card"><div class="card-top"><div class="channel-heading"><h3>${escapeHTML(c.name)}</h3><span class="tag ${c.enabled?'on':'off'}">${c.enabled?'● 已启用':'已暂停'}</span></div><span class="chip channel-usage">${state.monitors.filter(m=>m.channel_ids.includes(c.id)).length} 个监控项使用</span></div><div class="card-data">通知渠道：${c.kind==='telegram'?'Telegram Bot':'Bark'}<br>${escapeHTML(c.kind==='telegram'?`接收 Chat ID：${c.config.chat_id}`:`服务地址：${c.config.server}`)}</div><div class="chips"><span class="chip">${c.use_proxy?'使用系统代理':'直连'}</span><span class="chip">最多尝试 ${c.max_attempts} 次</span><span class="chip">${c.kind==='telegram'?'Bot Token 已保存':'Device Key 已保存'}</span>${c.kind==='bark'&&c.config.params?.sound?`<span class="chip">♫ ${escapeHTML(c.config.params.sound)}</span>`:''}</div><div class="card-actions"><button class="link-button" data-action="test-channel" data-id="${c.id}">测试推送 ↗</button><button class="link-button" data-action="edit-channel" data-id="${c.id}">编辑</button><button class="link-button delete" data-action="delete-channel" data-id="${c.id}">删除</button></div></article>`).join('') || empty('⇄','建立你的通知网络','添加多个 Bot 或 Bark 渠道，在监控项中自由组合。');
+  $('#channel-list').innerHTML=state.channels.map(c=>`<article class="card"><div class="card-top"><div class="channel-heading"><h3>${escapeHTML(c.name)}</h3><span class="tag ${c.enabled?'on':'off'}">${c.enabled?'● 已启用':'已暂停'}</span></div><span class="chip channel-usage">${state.monitors.filter(m=>m.channel_ids.includes(c.id)).length} 个监控项使用</span></div><div class="card-data">通知渠道：${({telegram:'Telegram Bot',bark:'Bark',dingtalk:'钉钉群机器人'})[c.kind]}<br>${escapeHTML(c.kind==='telegram'?`接收 Chat ID：${c.config.chat_id}`:c.kind==='bark'?`服务地址：${c.config.server}`:'接收群组：Webhook 绑定的钉钉群')}</div><div class="chips"><span class="chip">${c.use_proxy?'使用系统代理':'直连'}</span><span class="chip">最多尝试 ${c.max_attempts} 次</span><span class="chip">${({telegram:'Bot Token 已保存',bark:'Device Key 已保存',dingtalk:'Webhook 已保存'})[c.kind]}</span>${c.kind==='bark'&&c.config.params?.sound?`<span class="chip">♫ ${escapeHTML(c.config.params.sound)}</span>`:''}</div><div class="card-actions"><button class="link-button" data-action="test-channel" data-id="${c.id}">测试推送 ↗</button><button class="link-button" data-action="edit-channel" data-id="${c.id}">编辑</button><button class="link-button delete" data-action="delete-channel" data-id="${c.id}">删除</button></div></article>`).join('') || empty('⇄','建立你的通知网络','添加多个 Bot、Bark 或钉钉渠道，在监控项中自由组合。');
 }
 function formatMessageTime(value){
   const date=new Date(value),pad=n=>String(n).padStart(2,'0');
@@ -85,15 +85,16 @@ function openMonitor(id) {
   $('#monitor-dialog').showModal();
 }
 const barkFields=['icon','sound','group','level','badge','volume','autoCopy','call','isArchive','copy'];
-function switchChannelKind() { const kind=formValue($('#channel-form'),'kind').value;$('#telegram-fields').hidden=kind!=='telegram';$('#bark-fields').hidden=kind!=='bark';for(const el of $('#telegram-fields').querySelectorAll('input'))el.disabled=kind!=='telegram';for(const el of $('#bark-fields').querySelectorAll('input,select,textarea'))el.disabled=kind!=='bark'; }
+function switchChannelKind() {const kind=formValue($('#channel-form'),'kind').value;for(const type of ['telegram','bark','dingtalk']){const fields=$('#'+type+'-fields');fields.hidden=kind!==type;for(const el of fields.querySelectorAll('input,select,textarea'))el.disabled=kind!==type;}}
 function openChannel(id) {
   const f=$('#channel-form');f.reset();
   const channel=state.channels.find(c=>c.id===id), c=channel?.config??{};
   formValue(f,'id').value=id||'';formValue(f,'name').value=channel?.name??'';formValue(f,'kind').value=channel?.kind??'telegram';formValue(f,'enabled').checked=channel?.enabled??true;
-  for(const key of ['token','chat_id','message_thread_id','server','device_key'])formValue(f,key).value=c[key]??(key==='server'?'https://api.day.app':'');
+  for(const key of ['token','chat_id','message_thread_id','server','device_key','webhook','secret'])formValue(f,key).value=c[key]??(key==='server'?'https://api.day.app':'');
   formValue(f,'use_proxy').checked=channel?.use_proxy??false;
   formValue(f,'max_attempts').value=channel?.max_attempts??10;
   formValue(f,'disable_notification').checked=!!c.disable_notification;
+  formValue(f,'at_all').checked=!!c.at_all;
   const params={...(c.params??{})};
   for(const key of barkFields){const el=formValue(f,key);if(el.type==='checkbox')el.checked=params[key]===1||params[key]==='1';else el.value=params[key]??'';delete params[key];}
   formValue(f,'extra').value=Object.keys(params).length?JSON.stringify(params,null,2):'';
@@ -125,6 +126,7 @@ $('#monitor-form').addEventListener('submit',safe(async e=>{e.preventDefault();c
 $('#channel-form').addEventListener('submit',safe(async e=>{
   e.preventDefault();const f=e.target,id=formValue(f,'id').value,kind=formValue(f,'kind').value;let config;
   if(kind==='telegram'){config={token:formValue(f,'token').value,chat_id:formValue(f,'chat_id').value,disable_notification:formValue(f,'disable_notification').checked};if(formValue(f,'message_thread_id').value)config.message_thread_id=Number(formValue(f,'message_thread_id').value);}
+  else if(kind==='dingtalk'){config={webhook:formValue(f,'webhook').value,secret:formValue(f,'secret').value,at_all:formValue(f,'at_all').checked};}
   else {let params;try{params=JSON.parse(formValue(f,'extra').value||'{}');}catch{throw new Error('额外参数必须是有效的 JSON 对象');}if(!params||typeof params!=='object'||Array.isArray(params))throw new Error('额外参数必须是 JSON 对象');for(const key of barkFields){const el=formValue(f,key);if(el.type==='checkbox'){params[key]=el.checked?1:0;}else if(el.value!=='')params[key]=el.type==='number'?Number(el.value):el.value;}config={server:formValue(f,'server').value,device_key:formValue(f,'device_key').value,params};}
   await api('/channels'+(id?'/'+id:''),id?'PUT':'POST',{name:formValue(f,'name').value,kind,enabled:formValue(f,'enabled').checked,use_proxy:formValue(f,'use_proxy').checked,max_attempts:Number(formValue(f,'max_attempts').value),config});$('#channel-dialog').close();await refreshConfig();await refreshStatus();toast('推送渠道已保存');
 }));

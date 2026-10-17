@@ -220,7 +220,7 @@ def create_app(directory='data', background=True):
         try:
             model = Channel.model_validate(body)
         except ValueError:
-            raise HTTPException(422, '渠道参数无效，请检查必填字段及 Bark 额外参数') from None
+            raise HTTPException(422, '渠道参数无效，请检查必填字段、Webhook 及额外参数') from None
         store.save_channel(model, item_id)
         return {'id': item_id}
 
