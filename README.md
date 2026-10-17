@@ -103,3 +103,9 @@ uv run python -m pytest -q         # 运行测试
 ```
 
 启动入口为 `main.py`，业务代码和页面资源位于 `src/`。默认使用 `data/`，可通过 `DATA_DIR` 修改。
+
+页面左侧导航栏底部显示构建日期（北京时间）及 commit 前 7 位。GitHub Actions 在构建前生成 `src/build_info.json`，Docker 将其复制进镜像；文件已加入 `.gitignore`，不会提交到仓库。本地直接运行且没有该文件时，显示“本地开发”及当前 Git commit。手动构建若需要构建信息，可先生成同格式的文件：
+
+```json
+{"date": "2026-10-17T18:00:00+08:00", "commit": "abcdef0123456789"}
+```

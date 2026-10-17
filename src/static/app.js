@@ -37,6 +37,13 @@ function renderMessages() {
 async function refreshConfig() { [state.monitors,state.channels,state.templates]=await Promise.all([api('/monitors'),api('/channels'),api('/templates')]);renderMonitors();renderChannels();renderTemplates(); }
 async function refreshStatus() {
   const s=await api('/status');
+  if(s.build){
+    const date=s.build.date?new Date(s.build.date):null;
+    const formatted=date&&!Number.isNaN(date.getTime())?new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(date):'未知';
+    $('#build-date').textContent=s.build.local?'本地开发':'构建日期：'+formatted;
+    $('#build-date').title=s.build.local?'本地运行，尚未构建镜像':'构建时间（Asia/Shanghai）';
+    $('#build-commit').textContent='Commit：'+(s.build.commit||'未知');
+  }
   for(const name of ['monitors','messages','channels','failed']) $('#stat-'+name).textContent=s.counts[name];
   $('#connection').textContent=s.state;
   $('#connection-card').dataset.state=s.error?'error':s.connected&&s.authorized?'active':'waiting';

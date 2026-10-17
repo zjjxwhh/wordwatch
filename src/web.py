@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
 
+from .build_info import get_build_info
 from .db import Store, SESSION_LIFETIME
 from .models import AdminLogin, AdminSetup, AdminUpdate, Channel, LoginCode, LoginVerify, Monitor, Settings, PositiveID, TemplateFields, NotificationTemplate, SystemSettings
 from .push import deliver
@@ -23,6 +24,7 @@ STATIC = Path(__file__).parent / 'static'
 def create_app(directory='data', background=True):
     store = Store(directory)
     runtime = Runtime(store)
+    build_info = get_build_info()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -185,7 +187,7 @@ def create_app(directory='data', background=True):
     async def status():
         counts = {name: store.db.execute(f'SELECT COUNT(*) FROM {name}').fetchone()[0] for name in ('monitors', 'channels', 'messages')}
         counts['failed'] = store.db.execute("SELECT COUNT(*) FROM deliveries WHERE status='failed'").fetchone()[0]
-        return runtime.status() | {'counts': counts}
+        return runtime.status() | {'counts': counts, 'build': build_info}
 
     def public_channel(channel):
         result = dict(channel)

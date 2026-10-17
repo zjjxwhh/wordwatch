@@ -36,6 +36,7 @@ jobs:
           TZ: Asia/Shanghai
         run: |
           printf 'name=ghcr.io/%s\n' "${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          printf 'date=%s\n' "$(date --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
           printf 'timestamp=%s\n' "$(date +%Y%m%d%H%M)" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
@@ -64,6 +65,27 @@ jobs:
           tags: |
             type=raw,value=latest
             type=raw,value=${{ steps.image.outputs.timestamp }}
+
+      - name: Write build information
+        shell: bash
+        env:
+          BUILD_DATE: ${{ steps.image.outputs.date }}
+          BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          build_info = {
+              "date": os.environ["BUILD_DATE"],
+              "commit": os.environ["BUILD_COMMIT"],
+          }
+          Path("src/build_info.json").write_text(
+              json.dumps(build_info),
+              encoding="utf-8",
+          )
+          PY
 
       - name: Build and publish image
         id: build
