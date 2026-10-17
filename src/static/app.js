@@ -2,7 +2,7 @@
 const $ = s => document.querySelector(s);
 const state = {page:'monitors', monitors:[], channels:[], templates:[], messages:[], paging:false, refreshBusy:false};
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const names = {templates:['通知模板','让每条通知，恰如其分。','维护可复用的预设模板，或在监控项中导入后自由修改。','＋ 新建模板'],system:['系统设置','管理你的工作空间。','设置通知时区，管理管理员账户与密码。',''],monitors:['监控项','让重要发言，及时抵达。','按群组和用户追踪消息，将通知送达你选择的渠道。','＋ 新建监控项'],messages:['消息记录','每一条信号，都有迹可循。','查看捕获的消息、推送结果，随时回到原始对话。',''],channels:['推送渠道','一个渠道，连接多处关注。','配置 Telegram Bot 与 Bark，在不同监控项中灵活复用。','＋ 新建渠道'],settings:['Telegram 连接','连接你的 Telegram。','在这里完成账号登录、网络设置和群组查询。','']};
+const names = {templates:['通知模板','自定义通知标题与正文，在监控项中选择使用','＋ 新建模板'],system:['系统设置','设置通知时区与代理，管理管理员账户和密码',''],monitors:['监控项','按群组和用户追踪消息，将通知送达你选择的渠道。','＋ 新建监控项'],messages:['消息记录','查看捕获的消息、推送结果，随时回到原始对话。',''],channels:['推送渠道','配置 Telegram Bot 与 Bark，在不同监控项中灵活复用。','＋ 新建渠道'],settings:['Telegram 连接','配置 Telegram API、登录账号并查询群组','']};
 const formValue = (form, name) => form.elements.namedItem(name);
 let toastTimer;
 function toast(message, error=false) { const el=$('#toast'); el.textContent=message; el.classList.toggle('error',error); el.hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.hidden=true,5000); }
@@ -15,14 +15,13 @@ const safe = fn => async event => { try{await fn(event);}catch(error){toast(erro
 function empty(symbol,title,description) { return `<div class="empty"><div class="symbol">${symbol}</div><b>${title}</b><p>${description}</p></div>`; }
 function channelName(id) { return state.channels.find(c=>c.id===id)?.name ?? '已删除渠道'; }
 function renderMonitors() {
-  $('#monitor-count').textContent=`(${state.monitors.length})`;
-  $('#monitor-list').innerHTML=state.monitors.map(m=>`<article class="card"><div class="card-top"><h3>${escapeHTML(m.name)}</h3><span class="tag ${m.enabled?'on':'off'}">${m.enabled?'● 已启用':'已暂停'}</span></div><div class="card-data">群组 <b>${m.chat_id}</b><br>用户 <b>${escapeHTML(m.users.join(', '))}</b><br>已捕获 <b>${m.message_count}</b> 条消息</div><div class="chips">${m.channel_ids.map(id=>`<span class="chip">${escapeHTML(channelName(id))}</span>`).join('') || '<span class="chip">仅记录，不推送</span>'}</div><div class="card-actions"><button class="link-button" data-action="messages" data-id="${m.id}">查看消息 ↗</button><button class="link-button" data-action="edit-monitor" data-id="${m.id}">编辑</button><button class="link-button delete" data-action="delete-monitor" data-id="${m.id}">删除</button></div></article>`).join('') || empty('▦','从第一个监控项开始','设置群组和关注的用户，再选择通知送达的地方。');
+  $('#monitor-list').innerHTML=state.monitors.map(m=>`<article class="card"><div class="card-top"><div class="channel-heading"><h3>${escapeHTML(m.name)}</h3><span class="tag ${m.enabled?'on':'off'}">${m.enabled?'● 已启用':'已暂停'}</span></div><span class="chip channel-usage">已捕获 ${m.message_count} 条消息</span></div><div class="card-data">群组：${m.chat_id}<br>用户：${escapeHTML(m.users.join(', '))}</div><div class="chips">${m.channel_ids.map(id=>`<span class="chip">${escapeHTML(channelName(id))}</span>`).join('') || '<span class="chip">仅记录，不推送</span>'}<span class="chip">${escapeHTML(m.template_id?(state.templates.find(t=>t.id===m.template_id)?.name??'自定义'):(m.title_template||m.body_template?'自定义':'默认内容'))}</span></div><div class="card-actions"><button class="link-button" data-action="messages" data-id="${m.id}">查看消息 ↗</button><button class="link-button" data-action="edit-monitor" data-id="${m.id}">编辑</button><button class="link-button delete" data-action="delete-monitor" data-id="${m.id}">删除</button></div></article>`).join('') || empty('▦','从第一个监控项开始','设置群组和关注的用户，再选择通知送达的地方。');
   const filter=$('#message-filter'), selected=filter.value;
   filter.innerHTML='<option value="">全部监控项</option>'+state.monitors.map(m=>`<option value="${m.id}">${escapeHTML(m.name)}</option>`).join('');
   filter.value=selected;
 }
 function renderChannels() {
-  $('#channel-list').innerHTML=state.channels.map(c=>`<article class="card"><div class="card-top"><h3>${escapeHTML(c.name)}</h3><span class="tag ${c.enabled?'on':'off'}">${c.enabled?'● 已启用':'已暂停'}</span></div><div class="card-data"><b>${c.kind==='telegram'?'Telegram Bot':'Bark · POST /push'}</b><br>${escapeHTML(c.kind==='telegram'?`接收 Chat ID：${c.config.chat_id}`:c.config.server)}<br>被 <b>${state.monitors.filter(m=>m.channel_ids.includes(c.id)).length}</b> 个监控项使用</div><div class="chips"><span class="chip">${c.kind==='telegram'?'Bot Token 已保存':'Device Key 已保存'}</span>${c.kind==='bark'&&c.config.params?.sound?`<span class="chip">♫ ${escapeHTML(c.config.params.sound)}</span>`:''}</div><div class="card-actions"><button class="link-button" data-action="test-channel" data-id="${c.id}">测试推送 ↗</button><button class="link-button" data-action="edit-channel" data-id="${c.id}">编辑</button><button class="link-button delete" data-action="delete-channel" data-id="${c.id}">删除</button></div></article>`).join('') || empty('⇄','建立你的通知网络','添加多个 Bot 或 Bark 渠道，在监控项中自由组合。');
+  $('#channel-list').innerHTML=state.channels.map(c=>`<article class="card"><div class="card-top"><div class="channel-heading"><h3>${escapeHTML(c.name)}</h3><span class="tag ${c.enabled?'on':'off'}">${c.enabled?'● 已启用':'已暂停'}</span></div><span class="chip channel-usage">${state.monitors.filter(m=>m.channel_ids.includes(c.id)).length} 个监控项使用</span></div><div class="card-data">通知渠道：${c.kind==='telegram'?'Telegram Bot':'Bark'}<br>${escapeHTML(c.kind==='telegram'?`接收 Chat ID：${c.config.chat_id}`:`服务地址：${c.config.server}`)}</div><div class="chips"><span class="chip">${c.use_proxy?'使用系统代理':'直连'}</span><span class="chip">最多尝试 ${c.max_attempts} 次</span><span class="chip">${c.kind==='telegram'?'Bot Token 已保存':'Device Key 已保存'}</span>${c.kind==='bark'&&c.config.params?.sound?`<span class="chip">♫ ${escapeHTML(c.config.params.sound)}</span>`:''}</div><div class="card-actions"><button class="link-button" data-action="test-channel" data-id="${c.id}">测试推送 ↗</button><button class="link-button" data-action="edit-channel" data-id="${c.id}">编辑</button><button class="link-button delete" data-action="delete-channel" data-id="${c.id}">删除</button></div></article>`).join('') || empty('⇄','建立你的通知网络','添加多个 Bot 或 Bark 渠道，在监控项中自由组合。');
 }
 function formatMessageTime(value){
   const date=new Date(value),pad=n=>String(n).padStart(2,'0');
@@ -38,7 +37,10 @@ async function refreshStatus() {
   const s=await api('/status');
   for(const name of ['monitors','messages','channels','failed']) $('#stat-'+name).textContent=s.counts[name];
   $('#connection').textContent=s.state;
+  $('#connection-card').dataset.state=s.error?'error':s.connected&&s.authorized?'active':'waiting';
   $('#login-state').textContent=s.state+(s.error?' · '+s.error:'');
+  $('#login-state-card').dataset.state=$('#connection-card').dataset.state;
+  updateTelegramFields(s);
   $('#last-refresh').textContent='最近更新 '+new Date().toLocaleTimeString();
 }
 async function loadMessages(append=false) {
@@ -60,11 +62,12 @@ async function loadMessages(append=false) {
   }
 }
 async function showPage(page) {
+  if(document.body.classList.contains('menu-open'))closeNavigation();
   state.page=page;
   document.querySelectorAll('.page').forEach(el=>el.hidden=el.id!=='page-'+page);
   document.querySelectorAll('.nav').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
-  const [label,title,description,action]=names[page];
-  $('#breadcrumb').textContent=label;$('#page-title').textContent=title;$('#page-description').textContent=description;
+  const [label,description,action]=names[page];
+  $('#page-title').textContent=label;$('#page-description').textContent=description;
   $('#primary-action').hidden=!action;$('#primary-action').textContent=action;
   if(page==='templates')await refreshConfig();
   if(page==='messages')await loadMessages();
@@ -88,6 +91,8 @@ function openChannel(id) {
   const channel=state.channels.find(c=>c.id===id), c=channel?.config??{};
   formValue(f,'id').value=id||'';formValue(f,'name').value=channel?.name??'';formValue(f,'kind').value=channel?.kind??'telegram';formValue(f,'enabled').checked=channel?.enabled??true;
   for(const key of ['token','chat_id','message_thread_id','server','device_key'])formValue(f,key).value=c[key]??(key==='server'?'https://api.day.app':'');
+  formValue(f,'use_proxy').checked=channel?.use_proxy??false;
+  formValue(f,'max_attempts').value=channel?.max_attempts??10;
   formValue(f,'disable_notification').checked=!!c.disable_notification;
   const params={...(c.params??{})};
   for(const key of barkFields){const el=formValue(f,key);if(el.type==='checkbox')el.checked=params[key]===1||params[key]==='1';else el.value=params[key]??'';delete params[key];}
@@ -98,17 +103,18 @@ function confirmDelete(message) {return new Promise(resolve=>{const d=$('#confir
 async function loadSettings(){
   const f=$('#settings-form'),requestId=(state.settingsRequest??0)+1;
   state.settingsRequest=requestId;
-  f.querySelectorAll('input,button').forEach(el=>el.disabled=true);
+  f.querySelectorAll('input,select,button').forEach(el=>el.disabled=true);
   try{
     const s=await api('/settings');
     if(requestId!==state.settingsRequest)return;
-    for(const key of ['api_id','api_hash','proxy_host','proxy_port','proxy_username','proxy_password','http_proxy','max_attempts']){
+    for(const key of ['api_id','api_hash']){
       formValue(f,key).value=s[key]??'';
       if(s[key+'_configured'])formValue(f,key).placeholder='已保存，留空保留';
     }
-    formValue(f,'clear_http_proxy').checked=false;
+    formValue(f,'use_proxy').checked=s.use_proxy;
+    updateTelegramFields(s);
   }finally{
-    if(requestId===state.settingsRequest)f.querySelectorAll('input,button').forEach(el=>el.disabled=false);
+    if(requestId===state.settingsRequest)f.querySelectorAll('input,select,button').forEach(el=>el.disabled=false);
   }
 }
 document.querySelectorAll('.nav').forEach(el=>el.addEventListener('click',safe(()=>showPage(el.dataset.page))));
@@ -120,9 +126,9 @@ $('#channel-form').addEventListener('submit',safe(async e=>{
   e.preventDefault();const f=e.target,id=formValue(f,'id').value,kind=formValue(f,'kind').value;let config;
   if(kind==='telegram'){config={token:formValue(f,'token').value,chat_id:formValue(f,'chat_id').value,disable_notification:formValue(f,'disable_notification').checked};if(formValue(f,'message_thread_id').value)config.message_thread_id=Number(formValue(f,'message_thread_id').value);}
   else {let params;try{params=JSON.parse(formValue(f,'extra').value||'{}');}catch{throw new Error('额外参数必须是有效的 JSON 对象');}if(!params||typeof params!=='object'||Array.isArray(params))throw new Error('额外参数必须是 JSON 对象');for(const key of barkFields){const el=formValue(f,key);if(el.type==='checkbox'){params[key]=el.checked?1:0;}else if(el.value!=='')params[key]=el.type==='number'?Number(el.value):el.value;}config={server:formValue(f,'server').value,device_key:formValue(f,'device_key').value,params};}
-  await api('/channels'+(id?'/'+id:''),id?'PUT':'POST',{name:formValue(f,'name').value,kind,enabled:formValue(f,'enabled').checked,config});$('#channel-dialog').close();await refreshConfig();await refreshStatus();toast('推送渠道已保存');
+  await api('/channels'+(id?'/'+id:''),id?'PUT':'POST',{name:formValue(f,'name').value,kind,enabled:formValue(f,'enabled').checked,use_proxy:formValue(f,'use_proxy').checked,max_attempts:Number(formValue(f,'max_attempts').value),config});$('#channel-dialog').close();await refreshConfig();await refreshStatus();toast('推送渠道已保存');
 }));
-$('#settings-form').addEventListener('submit',safe(async e=>{e.preventDefault();const f=e.target;const body=Object.fromEntries(new FormData(f));body.api_id=body.api_id?Number(body.api_id):null;body.proxy_port=Number(body.proxy_port);body.max_attempts=Number(body.max_attempts);body.clear_http_proxy=formValue(f,'clear_http_proxy').checked;await api('/settings','PUT',body);await loadSettings();toast('连接配置已保存，正在重新连接');}));
+$('#settings-form').addEventListener('submit',safe(async e=>{e.preventDefault();const f=e.target;const body=Object.fromEntries(new FormData(f));body.api_id=body.api_id?Number(body.api_id):null;body.use_proxy=formValue(f,'use_proxy').checked;await api('/settings','PUT',body);await loadSettings();toast('连接配置已保存，正在重新连接');}));
 $('#code-form').addEventListener('submit',safe(async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;try{await api('/telegram/code','POST',{phone:formValue(e.target,'phone').value});toast('验证码已发送，请查看 Telegram');}finally{button.disabled=false;}}));
 $('#verify-form').addEventListener('submit',safe(async e=>{e.preventDefault();const result=await api('/telegram/verify','POST',{code:formValue(e.target,'code').value,password:formValue(e.target,'password').value});if(result.status==='password_required')toast('请填写两步验证密码，再次点击验证');else{e.target.reset();toast('Telegram 登录成功');await refreshStatus();}}));
 $('#get-dialogs').addEventListener('click',safe(async e=>{e.target.disabled=true;try{const groups=await api('/telegram/dialogs');$('#dialogs').innerHTML=groups.map(g=>`<div class="dialog-row"><span>${escapeHTML(g.name)}</span><code>${g.id}</code></div>`).join('')||'没有找到已加入的群组';}finally{e.target.disabled=false;}}));
@@ -138,7 +144,7 @@ document.addEventListener('click',safe(async e=>{const button=e.target.closest('
 }));
 async function initialize(){await refreshConfig();await refreshStatus();}
 initialize().catch(error=>toast(error.message,true));
-setInterval(async()=>{if(state.refreshBusy||document.hidden||state.accountChanged||state.accountUpdating)return;state.refreshBusy=true;try{await refreshStatus();if(state.page==='messages'&&!state.paging&&!state.messageLoading&&!document.querySelector('dialog[open]'))await loadMessages();if(state.page==='monitors'&&!document.querySelector('dialog[open]'))await refreshConfig();}catch{$('#connection').textContent='服务连接中断';}finally{state.refreshBusy=false;}},5000);
+setInterval(async()=>{if(state.refreshBusy||document.hidden||state.accountChanged||state.accountUpdating)return;state.refreshBusy=true;try{await refreshStatus();if(state.page==='messages'&&!state.paging&&!state.messageLoading&&!document.querySelector('dialog[open]'))await loadMessages();if(state.page==='monitors'&&!document.querySelector('dialog[open]'))await refreshConfig();}catch{$('#connection').textContent='服务连接中断';$('#connection-card').dataset.state='error';$('#login-state-card').dataset.state='error';$('#login-state').textContent='服务连接中断';}finally{state.refreshBusy=false;}},5000);
 
 $('#admin-form').addEventListener('submit',safe(async e=>{
   e.preventDefault();
@@ -166,7 +172,7 @@ $('#preview-template').addEventListener('click',safe(async e=>{
 for(const key of ['title_template','body_template'])formValue($('#monitor-form'),key).addEventListener('input',()=>$('#template-preview').hidden=true);
 
 function renderTemplates(){
-  $('#template-list').innerHTML=state.templates.map(t=>`<article class="card template-card"><div class="card-top"><h3>${escapeHTML(t.name)}</h3><span class="chip">${state.monitors.filter(m=>m.template_id===t.id).length} 个监控项引用</span></div><p class="hint">标题：${escapeHTML(t.title_template||'默认标题')}</p><pre class="template-snippet">${escapeHTML(t.body_template||'使用默认通知正文')}</pre><div class="card-actions"><button type="button" class="link-button" data-template-action="edit" data-id="${t.id}">编辑</button><button type="button" class="link-button delete" data-template-action="delete" data-id="${t.id}">删除</button></div></article>`).join('')||empty('▤','添加你的第一套模板','在监控项中引用，或导入后修改。');
+  $('#template-list').innerHTML=state.templates.map(t=>`<article class="card template-card"><div class="card-top"><h3>${escapeHTML(t.name)}</h3><span class="chip">${state.monitors.filter(m=>m.template_id===t.id).length} 个监控项引用</span></div><dl class="template-content"><div class="template-section"><dt>通知标题</dt><dd class="template-title-text">${escapeHTML(t.title_template||'默认标题')}</dd></div><div class="template-section"><dt>通知正文</dt><dd class="template-body-frame"><pre class="template-snippet">${escapeHTML(t.body_template||'使用默认通知正文')}</pre></dd></div></dl><div class="card-actions"><button type="button" class="link-button" data-template-action="edit" data-id="${t.id}">编辑</button><button type="button" class="link-button delete" data-template-action="delete" data-id="${t.id}">删除</button></div></article>`).join('')||empty('▤','添加你的第一套模板','在监控项中引用，或导入后修改。');
 }
 function openTemplate(id){
   const f=$('#preset-form'),t=state.templates.find(t=>t.id===id);f.reset();
@@ -236,10 +242,19 @@ document.addEventListener('click',safe(async e=>{
 }));
 
 async function loadSystemSettings(){
-  const f=$('#system-settings-form');f.querySelectorAll('input,button').forEach(el=>el.disabled=true);
-  try{const settings=await api('/system-settings');formValue(f,'timezone').value=settings.timezone;}
-  finally{f.querySelectorAll('input,button').forEach(el=>el.disabled=false);}
+  const f=$('#system-settings-form');for(const form of [f,$('#proxy-settings-form')])form.querySelectorAll('input,select,button').forEach(el=>el.disabled=true);
+  try{const settings=await api('/system-settings');formValue(f,'timezone').value=settings.timezone;
+    const proxy=$('#proxy-settings-form');
+    for(const key of ['proxy_type','proxy_host','proxy_port','proxy_username','proxy_password'])formValue(proxy,key).value=settings[key]??'';
+    formValue(proxy,'proxy_password').placeholder='可选';
+  }
+  finally{for(const form of [f,$('#proxy-settings-form')])form.querySelectorAll('input,select,button').forEach(el=>el.disabled=false);}
 }
+$('#proxy-settings-form').addEventListener('submit',safe(async e=>{
+  e.preventDefault();const f=e.target,button=f.querySelector('button');button.disabled=true;
+  try{const body=Object.fromEntries(new FormData(f));body.proxy_port=Number(body.proxy_port);await api('/system-settings','PUT',body);await loadSystemSettings();toast('代理设置已保存');}
+  finally{button.disabled=false;}
+}));
 $('#system-settings-form').addEventListener('submit',safe(async e=>{
   e.preventDefault();const f=e.target,button=f.querySelector('button');button.disabled=true;
   try{await api('/system-settings','PUT',{timezone:formValue(f,'timezone').value});toast('通知时区已保存');}
@@ -248,7 +263,61 @@ $('#system-settings-form').addEventListener('submit',safe(async e=>{
 
 async function loadAdminSettings(){
   if(state.accountChanged)return;
-  const f=$('#admin-form');f.querySelectorAll('input,button').forEach(el=>el.disabled=true);
+  const f=$('#admin-form');f.querySelectorAll('input,select,button').forEach(el=>el.disabled=true);
   try{const info=await api('/admin');formValue(f,'username').value=info.username;}
-  finally{f.querySelectorAll('input,button').forEach(el=>el.disabled=false);}
+  finally{f.querySelectorAll('input,select,button').forEach(el=>el.disabled=false);}
 }
+
+const navigationBreakpoint=window.matchMedia('(max-width:1050px)');
+function closeNavigation(restoreFocus=true){
+  document.body.classList.remove('menu-open');
+  $('#sidebar-backdrop').hidden=true;
+  $('#menu-toggle').setAttribute('aria-expanded','false');
+  if(restoreFocus&&navigationBreakpoint.matches)$('#menu-toggle').focus();
+}
+function openNavigation(){
+  if(!navigationBreakpoint.matches)return;
+  document.body.classList.add('menu-open');
+  $('#sidebar-backdrop').hidden=false;
+  $('#menu-toggle').setAttribute('aria-expanded','true');
+  $('#sidebar-close').focus();
+}
+$('#menu-toggle').addEventListener('click',()=>document.body.classList.contains('menu-open')?closeNavigation():openNavigation());
+$('#sidebar-close').addEventListener('click',()=>closeNavigation());
+$('#sidebar-backdrop').addEventListener('click',()=>closeNavigation());
+navigationBreakpoint.addEventListener('change',()=>closeNavigation(false));
+document.addEventListener('keydown',event=>{
+  if(!document.body.classList.contains('menu-open'))return;
+  if(event.key==='Escape'){event.preventDefault();closeNavigation();}
+  if(event.key==='Tab'){
+    const controls=[...$('#main-sidebar').querySelectorAll('a[href],button:not([disabled])')].filter(el=>el.getClientRects().length);
+    const first=controls[0],last=controls.at(-1);
+    if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+    else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+  }
+});
+
+function updateTelegramFields(info={}){
+  if(info.api_hash_configured!==undefined)state.apiHashConfigured=info.api_hash_configured;
+  if(typeof info.api_hash==='string')state.savedApiHash=info.api_hash;
+  if(info.authorized!==undefined)state.telegramAuthorized=info.authorized;
+  if(info.account_phone!==undefined)state.accountPhone=info.account_phone;
+  const hash=formValue($('#settings-form'),'api_hash'),hashBadge=$('#api-hash-state');
+  const hashChanged=!!hash.value&&hash.value!==(state.savedApiHash??'');
+  hashBadge.textContent=hashChanged?'待保存':state.apiHashConfigured?(state.telegramAuthorized?'已保存 · 账号已登录':'已保存，留空保留'):'未填写';
+  hashBadge.dataset.state=hashChanged?'pending':state.apiHashConfigured?'saved':'empty';
+  const phone=formValue($('#code-form'),'phone'),phoneBadge=$('#phone-state');
+  if(!phone.value&&state.accountPhone&&document.activeElement!==phone)phone.value=state.accountPhone;
+  const matches=!!state.accountPhone&&phone.value.replace(/\D/g,'')===state.accountPhone.replace(/\D/g,'');
+  phoneBadge.textContent=matches?(state.telegramAuthorized?'已验证 · 已登录':'已验证 · 当前未登录'):phone.value?'待验证':'未填写';
+  phoneBadge.dataset.state=matches?'saved':phone.value?'pending':'empty';
+}
+formValue($('#settings-form'),'api_hash').addEventListener('input',()=>updateTelegramFields());
+formValue($('#code-form'),'phone').addEventListener('input',()=>updateTelegramFields());
+
+$('#toggle-api-hash').addEventListener('click',()=>{
+  const input=formValue($('#settings-form'),'api_hash'),button=$('#toggle-api-hash');
+  input.type=input.type==='text'?'password':'text';
+  button.textContent=input.type==='text'?'隐藏':'显示';
+  button.setAttribute('aria-label',button.textContent+' API Hash');
+});
